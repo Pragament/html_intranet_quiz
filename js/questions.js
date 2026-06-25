@@ -341,121 +341,64 @@ Rules:
 
   // Consolidated CSV Ingestion Process
   async function processCSVData(parsedData, sourceName) {
-    if (parsedData.length === 0) {
+    if (!parsedData || parsedData.length === 0) {
       window.showToast(`No data found in ${sourceName}.`, 'error');
       return;
     }
 
-    // Inspect schema dynamically
-    let hasType = false;
-    let hasChapter = false;
-    let hasTopic = false;
-    let hasExplanation = false;
+    // Filter out rows that are completely empty (PapaParse sometimes adds ghost rows)
+    const dataRows = parsedData.filter(row => {
+      const question = row.question || row.question_text || '';
+      const correct = row.correct_option || '';
+      return question.trim() !== '' && correct.trim() !== '';
+    });
 
-    try {
-      const { error } = await window.supabaseClient.from('question_bank').select('type').limit(1);
-      hasType = !error;
-    } catch(e){}
-    try {
-      const { error } = await window.supabaseClient.from('question_bank').select('chapter').limit(1);
-      hasChapter = !error;
-    } catch(e){}
-    try {
-      const { error } = await window.supabaseClient.from('question_bank').select('topic').limit(1);
-      hasTopic = !error;
-    } catch(e){}
-    try {
-      const { error } = await window.supabaseClient.from('question_bank').select('explanation').limit(1);
-      hasExplanation = !error;
-    } catch(e){}
+    if (dataRows.length === 0) {
+      window.showToast('No valid rows found. Make sure question and correct_option columns are filled.', 'error');
+      return;
+    }
 
-    const validRows = [];
-    const errors = [];
+    const recordsToInsert = dataRows.map(row => {
+      const rawType = row.type ? row.type.trim().toUpperCase() : 'MCQ';
 
-    parsedData.forEach((row, index) => {
-      const rowNum = index + 2; // header is row 1
-      const qTypeRaw = row['type'];
-      const question = row['question'];
-      const opt1 = row['option1'];
-      const opt2 = row['option2'];
-      const opt3 = row['option3'];
-      const opt4 = row['option4'];
-      const correctOption = row['correct_option'];
-      const subject = row['subject'];
-
-      if (!question || !correctOption) {
-        errors.push(`Row ${rowNum}: Missing required fields (question or correct_option).`);
-        return;
-      }
-
-      // Determine type: default to MCQ
       let qType = 'MCQ';
-      if (qTypeRaw && qTypeRaw.trim()) {
-        const t = qTypeRaw.trim().toUpperCase();
-        if (t === 'FIB' || t === 'FILL IN THE BLANK') {
-          qType = 'FIB';
-        } else if (t === 'SHORT ANSWER' || t === 'SA' || t === 'SHORTANSWER') {
-          qType = 'Short Answer';
-        } else {
-          qType = 'MCQ';
-        }
+      if (rawType === 'FIB' || rawType === 'FILL IN THE BLANK') {
+        qType = 'FIB';
+      } else if (rawType === 'SHORT ANSWER' || rawType === 'SA' || rawType === 'SHORTANSWER') {
+        qType = 'Short Answer';
       }
 
-      // Check MCQ requirements
-      if (qType === 'MCQ') {
-        if (!opt1 || !opt2 || !opt3 || !opt4) {
-          errors.push(`Row ${rowNum}: MCQ type requires option1 through option4.`);
-          return;
-        }
-        const correct = correctOption.trim().toUpperCase();
-        if (correct !== 'A' && correct !== 'B' && correct !== 'C' && correct !== 'D') {
-          errors.push(`Row ${rowNum}: MCQ correct_option must be A, B, C, or D.`);
-          return;
-        }
-      }
+      const isMCQ = (qType === 'MCQ');
 
-      const correctVal = correctOption.trim().toLowerCase();
-      const syllabusTag = (subject && subject.trim()) ? subject.trim() : 'General';
-
-      const mappedRow = {
+      return {
         teacher_id: user.id,
-        syllabus_tag: syllabusTag,
-        question_text: question.trim(),
-        correct_option: correctVal
+        type: qType,
+        question_text: (row.question || row.question_text || '').trim(),
+        option_a: isMCQ ? (row.option1 || null) : null,
+        option_b: isMCQ ? (row.option2 || null) : null,
+        option_c: isMCQ ? (row.option3 || null) : null,
+        option_d: isMCQ ? (row.option4 || null) : null,
+        correct_option: (row.correct_option || '').trim(),
+        syllabus_tag: (row.subject || row.syllabus_tag || 'General').trim()
       };
+    });
 
-      if (hasType) {
-        mappedRow.type = qType;
+    // Basic validation pass: MCQ must have A/B/C/D, all rows must have question + correct_option
+    const errors = [];
+    recordsToInsert.forEach((rec, idx) => {
+      const rowNum = idx + 2;
+      if (!rec.question_text) {
+        errors.push(`Row ${rowNum}: Missing question text.`);
       }
-
-      if (qType === 'MCQ') {
-        mappedRow.option_a = opt1.trim();
-        mappedRow.option_b = opt2.trim();
-        mappedRow.option_c = opt3.trim();
-        mappedRow.option_d = opt4.trim();
-      } else {
-        mappedRow.option_a = null;
-        mappedRow.option_b = null;
-        mappedRow.option_c = null;
-        mappedRow.option_d = null;
+      if (!rec.correct_option) {
+        errors.push(`Row ${rowNum}: Missing correct_option.`);
       }
-
-      // Conditional schema fields
-      if (hasChapter && 'chapter' in row) {
-        mappedRow.chapter = row['chapter'] ? row['chapter'].trim() : null;
-      }
-      if (hasTopic && 'topic' in row) {
-        mappedRow.topic = row['topic'] ? row['topic'].trim() : null;
-      }
-      if (hasExplanation) {
-        if ('correct_answer_logic' in row) {
-          mappedRow.explanation = row['correct_answer_logic'] ? row['correct_answer_logic'].trim() : null;
-        } else if ('explanation' in row) {
-          mappedRow.explanation = row['explanation'] ? row['explanation'].trim() : null;
+      if (rec.type === 'MCQ') {
+        const co = rec.correct_option.toUpperCase();
+        if (co !== 'A' && co !== 'B' && co !== 'C' && co !== 'D') {
+          errors.push(`Row ${rowNum}: MCQ correct_option must be A, B, C, or D (got "${rec.correct_option}").`);
         }
       }
-
-      validRows.push(mappedRow);
     });
 
     if (errors.length > 0) {
@@ -467,13 +410,13 @@ Rules:
     try {
       const { error } = await window.supabaseClient
         .from('question_bank')
-        .insert(validRows);
+        .insert(recordsToInsert);
 
       if (error) throw error;
 
-      alert(`Successfully imported ${validRows.length} questions!`);
-      window.showToast(`Successfully imported ${validRows.length} questions!`, 'success');
-      
+      alert(`Successfully imported ${recordsToInsert.length} questions!`);
+      window.showToast(`Successfully imported ${recordsToInsert.length} questions!`, 'success');
+
       // Reset inputs
       csvFileInput.value = '';
       csvPasteInput.value = '';
