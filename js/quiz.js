@@ -189,42 +189,66 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Question Text
     questionTextDisplay.textContent = q.question_text;
 
-    // Options rendering
+    // Options rendering based on question type
     const selectedAns = answers[q.id];
     let optionsHtml = '';
 
-    (['A', 'B', 'C', 'D']).forEach((letter) => {
-      const optionKey = `option_${letter.toLowerCase()}`;
-      const optionText = q[optionKey];
-      const isSelected = selectedAns === letter;
+    if (q.type === 'MCQ') {
+      // Render MCQ radio/button options
+      (['A', 'B', 'C', 'D']).forEach((letter) => {
+        const optionKey = `option_${letter.toLowerCase()}`;
+        const optionText = q[optionKey];
+        const isSelected = selectedAns === letter;
 
-      optionsHtml += `
-        <button
-          type="button"
-          onclick="window.selectOption('${letter}')"
-          class="w-full flex items-start gap-4 p-4 rounded-xl border text-left transition select-none cursor-pointer ${
-            isSelected
-              ? 'border-blue-600 bg-blue-50/30 ring-1 ring-blue-600'
-              : 'border-slate-200 hover:border-slate-300 bg-white'
-          }"
-        >
-          <span
-            class="w-5 h-5 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
+        optionsHtml += `
+          <button
+            type="button"
+            onclick="window.selectOption('${letter}')"
+            class="w-full flex items-start gap-4 p-4 rounded-xl border text-left transition select-none cursor-pointer ${
               isSelected
-                ? 'bg-blue-600 border-blue-600 text-white'
-                : 'border-slate-300 text-slate-500 bg-slate-50'
+                ? 'border-blue-600 bg-blue-50/30 ring-1 ring-blue-600'
+                : 'border-slate-200 hover:border-slate-300 bg-white'
             }"
           >
-            ${letter}
-          </span>
-          <span class="text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}">
-            ${escapeHtml(optionText)}
-          </span>
-        </button>
+            <span
+              class="w-5 h-5 rounded-full border flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
+                isSelected
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'border-slate-300 text-slate-500 bg-slate-50'
+              }"
+            >
+              ${letter}
+            </span>
+            <span class="text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}">
+              ${escapeHtml(optionText)}
+            </span>
+          </button>
+        `;
+      });
+    } else {
+      // Render text input for FIB or Short Answer
+      optionsHtml = `
+        <input
+          type="text"
+          id="student-text-answer"
+          class="w-full p-4 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+          placeholder="Type your answer here..."
+          value="${escapeHtml(selectedAns || '')}"
+        />
       `;
-    });
+    }
 
     optionsContainer.innerHTML = optionsHtml;
+
+    // Add input event listener for text answer to save as user types
+    if (q.type !== 'MCQ') {
+      const textInput = document.getElementById('student-text-answer');
+      if (textInput) {
+        textInput.addEventListener('input', () => {
+        answers[q.id] = textInput.value.trim();
+        });
+      }
+    }
 
     // Navigation Buttons configuration
     prevBtn.disabled = currentIdx === 0;
@@ -248,7 +272,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.lucide.createIcons();
   }
 
-  // Handle Option Clicks
+  // Helper to save current answer (for both MCQ and text)
+  function saveCurrentAnswer() {
+    const q = questions[currentIdx];
+    if (q.type === 'MCQ') {
+      // Already handled by selectOption, but just in case
+    } else {
+      const textInput = document.getElementById('student-text-answer');
+      if (textInput) {
+        answers[q.id] = textInput.value.trim();
+      }
+    }
+  }
+
+  // Handle Option Clicks (MCQ only)
   window.selectOption = (letter) => {
     const q = questions[currentIdx];
     answers[q.id] = letter;
@@ -257,6 +294,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Nav: Previous Question
   prevBtn.addEventListener('click', () => {
+    saveCurrentAnswer();
     if (currentIdx > 0) {
       currentIdx--;
       renderCurrentQuestion();
@@ -266,6 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Nav: Next Question / Submit
   nextBtn.addEventListener('click', async () => {
     if (submitting) return;
+    saveCurrentAnswer();
 
     const isLastQuestionOfLastRound = currentIdx === questions.length - 1 && currentRound === quiz.rounds;
 
@@ -300,21 +339,46 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 1. Calculate Score
       let finalScore = 0;
       questions.forEach((q) => {
-        const studentAns = answers[q.id];
-        if (studentAns === q.correct_option) {
+        const studentAns = answers[q.id] || '';
+        if (studentAns.trim() && q.correct_option && studentAns.trim().toUpperCase() === q.correct_option.trim().toUpperCase()) {
           finalScore++;
         }
       });
 
       // 2. Insert to Supabase student_results
-      const { error } = await window.supabaseClient.from('student_results').insert({
+      const { data: resultData, error: resultError } = await window.supabaseClient.from('student_results').insert({
         quiz_id: quiz.id,
         student_name: studentName,
         score: finalScore,
         total_questions: questions.length,
+      }).select();
+
+      if (resultError) throw resultError;
+
+      const studentResultId = resultData && resultData[0] ? resultData[0].id : null;
+
+      // 3. Prepare responses payload
+      const responsesPayload = questions.map((q) => {
+        const studentAns = answers[q.id] || '';
+        return {
+          quiz_id: quiz.id,
+          student_result_id: studentResultId,
+          student_name: studentName,
+          question_text: q.question_text,
+          student_answer: studentAns,
+          question_type: q.type || 'MCQ',
+          marks_assigned: null,
+          ai_reasoning: null
+        };
       });
 
-      if (error) throw error;
+      // Insert responses
+      if (responsesPayload.length > 0) {
+        const { error: respError } = await window.supabaseClient.from('student_responses').insert(responsesPayload);
+        if (respError) {
+          console.error('Error inserting student responses. Please make sure the student_responses table exists in Supabase. Error:', respError);
+        }
+      }
 
       window.showToast('Quiz completed and submitted successfully!', 'success');
 

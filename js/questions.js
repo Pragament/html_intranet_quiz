@@ -23,6 +23,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const csvFileInput = document.getElementById('csv-file-input');
   const importCsvBtn = document.getElementById('import-csv-btn');
+  const csvPasteInput = document.getElementById('csvPasteInput');
+  const toggleModeFile = document.getElementById('toggle-mode-file');
+  const toggleModePaste = document.getElementById('toggle-mode-paste');
+  const wrapperFileInput = document.getElementById('wrapper-file-input');
+  const wrapperPasteInput = document.getElementById('wrapper-paste-input');
+  const importBtnText = document.getElementById('import-btn-text');
+  const copyAiPromptBtn = document.getElementById('copy-ai-prompt-btn');
 
   // Toggle form panel
   let showForm = false;
@@ -38,8 +45,77 @@ document.addEventListener('DOMContentLoaded', async () => {
       toggleIcon.setAttribute('data-lucide', 'plus');
       manualForm.reset();
       csvFileInput.value = '';
+      csvPasteInput.value = '';
+      setImportMode('file');
     }
     window.lucide.createIcons();
+  }
+
+  let importMode = 'file';
+  function setImportMode(mode) {
+    importMode = mode;
+    if (mode === 'file') {
+      toggleModeFile.classList.add('bg-white', 'text-slate-800', 'shadow-sm');
+      toggleModeFile.classList.remove('text-slate-600', 'hover:text-slate-900');
+      toggleModePaste.classList.remove('bg-white', 'text-slate-800', 'shadow-sm');
+      toggleModePaste.classList.add('text-slate-600', 'hover:text-slate-900');
+      
+      wrapperFileInput.classList.remove('hidden');
+      wrapperPasteInput.classList.add('hidden');
+      
+      importBtnText.textContent = 'Process and Import File';
+    } else {
+      toggleModePaste.classList.add('bg-white', 'text-slate-800', 'shadow-sm');
+      toggleModePaste.classList.remove('text-slate-600', 'hover:text-slate-900');
+      toggleModeFile.classList.remove('bg-white', 'text-slate-800', 'shadow-sm');
+      toggleModeFile.classList.add('text-slate-600', 'hover:text-slate-900');
+      
+      wrapperPasteInput.classList.remove('hidden');
+      wrapperFileInput.classList.add('hidden');
+      
+      importBtnText.textContent = 'Process and Import Text Block';
+    }
+  }
+
+  toggleModeFile.addEventListener('click', () => setImportMode('file'));
+  toggleModePaste.addEventListener('click', () => setImportMode('paste'));
+
+  // Copy AI Prompt feature
+  if (copyAiPromptBtn) {
+    copyAiPromptBtn.addEventListener('click', async () => {
+      const promptText = `Act as an expert school teacher. Create a 5-question quiz for [Class/Subject] on the topic "[Topic]". 
+
+Output ONLY a raw CSV block. Do not include markdown brackets (\`\`\`) or any introductory text.
+
+Use these exact headers in the first row:
+type,question,option1,option2,option3,option4,correct_option,subject
+
+Rules:
+1. 'type' can be: MCQ, FIB, or Short Answer.
+2. For MCQ: Fill in option1 to option4. 'correct_option' must be A, B, C, or D.
+3. For FIB & Short Answer: Leave option1, option2, option3, and option4 completely blank. Put the actual text answer inside 'correct_option'.`;
+
+      try {
+        await navigator.clipboard.writeText(promptText);
+        
+        // Visual feedback
+        const originalHtml = copyAiPromptBtn.innerHTML;
+        copyAiPromptBtn.innerHTML = '<i data-lucide="check" class="w-3 h-3"></i> Copied!';
+        copyAiPromptBtn.classList.remove('bg-blue-50', 'text-blue-600', 'hover:bg-blue-100');
+        copyAiPromptBtn.classList.add('bg-emerald-50', 'text-emerald-600', 'hover:bg-emerald-100');
+        window.lucide.createIcons();
+
+        setTimeout(() => {
+          copyAiPromptBtn.innerHTML = originalHtml;
+          copyAiPromptBtn.classList.remove('bg-emerald-50', 'text-emerald-600', 'hover:bg-emerald-100');
+          copyAiPromptBtn.classList.add('bg-blue-50', 'text-blue-600', 'hover:bg-blue-100');
+          window.lucide.createIcons();
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy prompt:', err);
+        window.showToast('Failed to copy prompt to clipboard', 'error');
+      }
+    });
   }
 
   toggleAddFormBtn.addEventListener('click', () => toggleForm());
@@ -132,6 +208,45 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let listHtml = '';
     filtered.forEach((q, idx) => {
+      let optionsHtml = '';
+      let correctAnswerHtml = '';
+
+      if (q.type === 'MCQ') {
+        // Show option grid for MCQ
+        optionsHtml = `
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+            <div class="p-3 rounded-xl border text-sm flex gap-2 ${(q.correct_option || '').toUpperCase() === 'A' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
+              <span class="font-bold text-slate-400">A.</span>
+              <span>${escapeHtml(q.option_a)}</span>
+            </div>
+            <div class="p-3 rounded-xl border text-sm flex gap-2 ${(q.correct_option || '').toUpperCase() === 'B' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
+              <span class="font-bold text-slate-400">B.</span>
+              <span>${escapeHtml(q.option_b)}</span>
+            </div>
+            <div class="p-3 rounded-xl border text-sm flex gap-2 ${(q.correct_option || '').toUpperCase() === 'C' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
+              <span class="font-bold text-slate-400">C.</span>
+              <span>${escapeHtml(q.option_c)}</span>
+            </div>
+            <div class="p-3 rounded-xl border text-sm flex gap-2 ${(q.correct_option || '').toUpperCase() === 'D' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
+              <span class="font-bold text-slate-400">D.</span>
+              <span>${escapeHtml(q.option_d)}</span>
+            </div>
+          </div>
+        `;
+        correctAnswerHtml = `
+          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl w-fit">
+            Correct Answer: Option ${(q.correct_option || '').toUpperCase()}
+          </div>
+        `;
+      } else {
+        // Show clean text answer for FIB/Short Answer
+        correctAnswerHtml = `
+          <div class="flex items-center gap-1.5 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-4 py-2.5 rounded-xl w-fit">
+            🟢 Correct Answer: ${escapeHtml(q.correct_option || '')}
+          </div>
+        `;
+      }
+
       listHtml += `
         <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:border-slate-300 transition duration-150 relative animate-slide-up">
           <div class="flex justify-between items-start gap-4 mb-3">
@@ -142,6 +257,9 @@ document.addEventListener('DOMContentLoaded', async () => {
               <span class="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
                 <i data-lucide="tag" class="w-3 h-3"></i>
                 ${escapeHtml(q.syllabus_tag)}
+              </span>
+              <span class="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
+                ${q.type || 'MCQ'}
               </span>
             </div>
             <button
@@ -155,28 +273,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
           <p class="text-slate-900 font-semibold mb-4 pr-8">${escapeHtml(q.question_text)}</p>
 
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-            <div class="p-3 rounded-xl border text-sm flex gap-2 ${q.correct_option === 'A' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
-              <span class="font-bold text-slate-400">A.</span>
-              <span>${escapeHtml(q.option_a)}</span>
-            </div>
-            <div class="p-3 rounded-xl border text-sm flex gap-2 ${q.correct_option === 'B' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
-              <span class="font-bold text-slate-400">B.</span>
-              <span>${escapeHtml(q.option_b)}</span>
-            </div>
-            <div class="p-3 rounded-xl border text-sm flex gap-2 ${q.correct_option === 'C' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
-              <span class="font-bold text-slate-400">C.</span>
-              <span>${escapeHtml(q.option_c)}</span>
-            </div>
-            <div class="p-3 rounded-xl border text-sm flex gap-2 ${q.correct_option === 'D' ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-semibold' : 'border-slate-100 bg-slate-50/50 text-slate-700'}">
-              <span class="font-bold text-slate-400">D.</span>
-              <span>${escapeHtml(q.option_d)}</span>
-            </div>
-          </div>
+          ${optionsHtml}
 
-          <div class="flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1.5 rounded-xl w-fit">
-            Correct Answer: Option ${q.correct_option}
-          </div>
+          ${correctAnswerHtml}
         </div>
       `;
     });
@@ -263,106 +362,158 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  // CSV Import feature
-  importCsvBtn.addEventListener('click', () => {
-    const file = csvFileInput.files[0];
-    if (!file) {
-      window.showToast('Please select a CSV file first.', 'error');
+  // Consolidated CSV Ingestion Process
+  async function processCSVData(parsedData, sourceName) {
+    if (!parsedData || parsedData.length === 0) {
+      window.showToast(`No data found in ${sourceName}.`, 'error');
       return;
     }
 
-    importCsvBtn.disabled = true;
-    importCsvBtn.textContent = 'Parsing...';
+    // Filter out rows that are completely empty (PapaParse sometimes adds ghost rows)
+    const dataRows = parsedData.filter(row => {
+      const question = (row.question || row.question_text || '').trim();
+      const correct = (row.correct_option || row['correct_option '] || '').trim();
+      return question !== '' && correct !== '';
+    });
 
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      transformHeader: (header) => header.trim().toLowerCase(),
-      complete: async (results) => {
-        const rows = results.data;
-        if (rows.length === 0) {
-          window.showToast('The CSV file is empty.', 'error');
-          resetImportButton();
-          return;
+    if (dataRows.length === 0) {
+      window.showToast('No valid rows found. Make sure question and correct_option columns are filled.', 'error');
+      return;
+    }
+
+    const recordsToInsert = dataRows.map(row => {
+      const rawType = (row.type || '').trim().toUpperCase() || 'MCQ';
+
+      let qType = 'MCQ';
+      if (rawType === 'FIB' || rawType === 'FILL IN THE BLANK') {
+        qType = 'FIB';
+      } else if (rawType === 'SHORT ANSWER' || rawType === 'SA' || rawType === 'SHORTANSWER') {
+        qType = 'Short Answer';
+      }
+
+      const isMCQ = (qType === 'MCQ');
+
+      return {
+        teacher_id: user.id,
+        type: qType,
+        question_text: (row.question || row.question_text || '').trim(),
+        option_a: (row.option1 || '').trim(),
+        option_b: (row.option2 || '').trim(),
+        option_c: (row.option3 || '').trim(),
+        option_d: (row.option4 || '').trim(),
+        correct_option: (row.correct_option || row['correct_option '] || '').trim(),
+        syllabus_tag: (row.subject || row.syllabus_tag || 'General').trim()
+      };
+    });
+
+    // Basic validation pass: MCQ must have A/B/C/D, all rows must have question + correct_option
+    const errors = [];
+    recordsToInsert.forEach((rec, idx) => {
+      const rowNum = idx + 2;
+      if (!rec.question_text) {
+        errors.push(`Row ${rowNum}: Missing question text.`);
+      }
+      if (!rec.correct_option) {
+        errors.push(`Row ${rowNum}: Missing correct_option.`);
+      }
+      if (rec.type === 'MCQ') {
+        const co = rec.correct_option.toUpperCase();
+        if (co !== 'A' && co !== 'B' && co !== 'C' && co !== 'D') {
+          errors.push(`Row ${rowNum}: MCQ correct_option must be A, B, C, or D (got "${rec.correct_option}").`);
         }
-
-        const validRows = [];
-        const errors = [];
-
-        // Validation mapping
-        rows.forEach((row, index) => {
-          const rowNum = index + 2; // header is row 1
-          const tag = row['syllabus_tag'];
-          const text = row['question_text'];
-          const optA = row['option_a'];
-          const optB = row['option_b'];
-          const optC = row['option_c'];
-          const optD = row['option_d'];
-          let correct = row['correct_option'];
-
-          if (!tag || !text || !optA || !optB || !optC || !optD || !correct) {
-            errors.push(`Row ${rowNum}: Contains empty or missing fields.`);
-            return;
-          }
-
-          correct = correct.trim().toUpperCase();
-          if (correct !== 'A' && correct !== 'B' && correct !== 'C' && correct !== 'D') {
-            errors.push(`Row ${rowNum}: Invalid correct_option "${correct}". Must be A, B, C, or D.`);
-            return;
-          }
-
-          validRows.push({
-            teacher_id: user.id,
-            syllabus_tag: tag.trim(),
-            question_text: text.trim(),
-            option_a: optA.trim(),
-            option_b: optB.trim(),
-            option_c: optC.trim(),
-            option_d: optD.trim(),
-            correct_option: correct
-          });
-        });
-
-        if (errors.length > 0) {
-          alert(`CSV Validation Failed:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...and more' : ''}`);
-          window.showToast('Failed to validate CSV structure.', 'error');
-          resetImportButton();
-          return;
-        }
-
-        importCsvBtn.textContent = 'Importing...';
-
-        try {
-          const { error } = await window.supabaseClient
-            .from('question_bank')
-            .insert(validRows);
-
-          if (error) throw error;
-
-          window.showToast(`Successfully imported ${validRows.length} questions!`, 'success');
-          toggleForm(false);
-          fetchQuestions();
-        } catch (err) {
-          console.error('Error bulk importing questions:', err);
-          window.showToast(err.message || 'Failed to import CSV questions.', 'error');
-        } finally {
-          resetImportButton();
-        }
-      },
-      error: (err) => {
-        console.error('CSV Parsing Error:', err);
-        window.showToast('Error parsing CSV file.', 'error');
-        resetImportButton();
       }
     });
+
+    if (errors.length > 0) {
+      alert(`CSV Validation Failed:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...and more' : ''}`);
+      window.showToast('Failed to validate CSV structure.', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await window.supabaseClient
+        .from('question_bank')
+        .insert(recordsToInsert);
+
+      if (error) throw error;
+
+      alert(`Successfully imported ${recordsToInsert.length} questions!`);
+      window.showToast(`Successfully imported ${recordsToInsert.length} questions!`, 'success');
+
+      // Reset inputs
+      csvFileInput.value = '';
+      csvPasteInput.value = '';
+      toggleForm(false);
+      fetchQuestions();
+    } catch (err) {
+      console.error('Error bulk importing questions:', err);
+      alert(err.message || 'Failed to import CSV questions.');
+      window.showToast(err.message || 'Failed to import CSV questions.', 'error');
+    }
+  }
+
+  // Unified Import Button Click Listener
+  importCsvBtn.addEventListener('click', () => {
+    if (importMode === 'file') {
+      const file = csvFileInput.files[0];
+      if (!file) {
+        window.showToast('Please select a CSV file first.', 'error');
+        return;
+      }
+
+      importCsvBtn.disabled = true;
+      const originalHtml = importCsvBtn.innerHTML;
+      importCsvBtn.textContent = 'Parsing...';
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => header.trim().toLowerCase(),
+        complete: async (results) => {
+          await processCSVData(results.data, file.name);
+          resetImportBtn(originalHtml);
+        },
+        error: (err) => {
+          console.error('CSV Parsing Error:', err);
+          window.showToast('Error parsing CSV file.', 'error');
+          resetImportBtn(originalHtml);
+        }
+      });
+    } else {
+      // Paste Mode
+      const rawText = csvPasteInput.value.trim();
+      if (!rawText) {
+        alert('Please paste some CSV data first.');
+        return;
+      }
+
+      // Strip markdown code block wrapping (like ```csv ... ```)
+      const cleanedText = rawText.replace(/```[a-zA-Z]*\n?/g, '').replace(/```/g, '').trim();
+
+      importCsvBtn.disabled = true;
+      const originalHtml = importCsvBtn.innerHTML;
+      importCsvBtn.textContent = 'Parsing...';
+
+      Papa.parse(cleanedText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (header) => header.trim().toLowerCase(),
+        complete: async (results) => {
+          await processCSVData(results.data, 'pasted text');
+          resetImportBtn(originalHtml);
+        },
+        error: (err) => {
+          console.error('CSV Parsing Error:', err);
+          alert('Error parsing CSV input. Please check console.');
+          resetImportBtn(originalHtml);
+        }
+      });
+    }
   });
 
-  function resetImportButton() {
+  function resetImportBtn(originalHtml) {
     importCsvBtn.disabled = false;
-    importCsvBtn.innerHTML = `
-      <i data-lucide="upload-cloud" class="w-4 h-4"></i>
-      Upload and Import
-    `;
+    importCsvBtn.innerHTML = originalHtml;
     window.lucide.createIcons();
   }
 
