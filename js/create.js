@@ -203,6 +203,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     filtered.forEach((q) => {
       const isSelected = selectedQuestionIds.includes(q.id);
       
+      let contentHtml = '';
+      
+      if (q.type === 'MCQ') {
+        const correctOpt = (q.correct_option || '').toUpperCase();
+        contentHtml += `
+          <div class="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs">
+            <div class="${correctOpt === 'A' ? 'text-emerald-700 font-semibold' : 'text-slate-500'}">
+              A: ${escapeHtml(q.option_a)} ${correctOpt === 'A' ? '✅' : ''}
+            </div>
+            <div class="${correctOpt === 'B' ? 'text-emerald-700 font-semibold' : 'text-slate-500'}">
+              B: ${escapeHtml(q.option_b)} ${correctOpt === 'B' ? '✅' : ''}
+            </div>
+            <div class="${correctOpt === 'C' ? 'text-emerald-700 font-semibold' : 'text-slate-500'}">
+              C: ${escapeHtml(q.option_c)} ${correctOpt === 'C' ? '✅' : ''}
+            </div>
+            <div class="${correctOpt === 'D' ? 'text-emerald-700 font-semibold' : 'text-slate-500'}">
+              D: ${escapeHtml(q.option_d)} ${correctOpt === 'D' ? '✅' : ''}
+            </div>
+          </div>
+        `;
+      } else {
+        contentHtml += `
+          <div class="mt-2 text-xs text-emerald-700 font-semibold bg-emerald-50 px-3 py-1.5 rounded-lg w-fit">
+            🟢 Correct Answer: ${escapeHtml(q.correct_option || '')}
+          </div>
+        `;
+      }
+      
       html += `
         <div
           onclick="window.toggleQuestionSelect('${q.id}')"
@@ -224,14 +252,12 @@ document.addEventListener('DOMContentLoaded', async () => {
               <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                 ${escapeHtml(q.syllabus_tag)}
               </span>
+              <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                ${q.type || 'MCQ'}
+              </span>
             </div>
             <p class="text-slate-900 text-sm font-semibold pr-2">${escapeHtml(q.question_text)}</p>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
-              <div>A: ${escapeHtml(q.option_a)}</div>
-              <div>B: ${escapeHtml(q.option_b)}</div>
-              <div>C: ${escapeHtml(q.option_c)}</div>
-              <div>D: ${escapeHtml(q.option_d)}</div>
-            </div>
+            ${contentHtml}
           </div>
         </div>
       `;
