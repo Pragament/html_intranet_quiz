@@ -34,6 +34,32 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/style.css">
+  <style>
+    .form-control {
+      display: block;
+      width: 100%;
+      padding-left: 2.5rem;
+      padding-right: 0.75rem;
+      padding-top: 0.625rem;
+      padding-bottom: 0.625rem;
+      border-width: 1px;
+      border-color: #cbd5e1;
+      border-radius: 0.75rem;
+      color: #0f172a;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      background-color: #ffffff;
+    }
+    .form-control:focus {
+      outline: 2px solid transparent;
+      outline-offset: 2px;
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px #3b82f6;
+    }
+    .form-control::placeholder {
+      color: #94a3b8;
+    }
+  </style>
 </head>
 <body class="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
 
@@ -43,15 +69,14 @@
       href="index.html"
       class="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-500 hover:text-blue-600 transition-colors duration-200"
     >
-      <i data-lucide="arrow-left" class="w-4 h-4"></i>
-      Back to Student Portal
+      ← Back to Student Portal
     </a>
   </div>
 
   <div class="sm:mx-auto sm:w-full sm:max-w-md animate-slide-up">
     <div class="flex justify-center">
       <span class="inline-flex items-center justify-center p-3 bg-blue-600 rounded-2xl text-white shadow-lg shadow-blue-200">
-        <i data-lucide="shield" class="w-8 h-8"></i>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-8 h-8 text-white"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M6 18.8v-4L2 13v6a1 1 0 0 0 1 1h3M21.4 10.9v4a1 1 0 0 1-1 1h-3v-4"/></svg>
       </span>
     </div>
     <h2 id="auth-title" class="mt-6 text-center text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -87,6 +112,7 @@
               id="fullname"
               type="text"
               placeholder="Jane Doe"
+              autocomplete="off"
               class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 placeholder-slate-400 text-sm"
             />
           </div>
@@ -100,13 +126,8 @@
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <i data-lucide="mail" class="h-5 w-5 text-slate-400"></i>
             </div>
-            <input
-              id="email"
-              type="email"
-              required
-              placeholder="you@example.com"
-              class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 placeholder-slate-400 text-sm"
-            />
+            <!-- Email Input Field -->
+            <input type="email" id="email" class="form-control" placeholder="Enter your email" readonly onfocus="this.removeAttribute('readonly');">
           </div>
         </div>
 
@@ -118,13 +139,8 @@
             <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <i data-lucide="lock" class="h-5 w-5 text-slate-400"></i>
             </div>
-            <input
-              id="password"
-              type="password"
-              required
-              placeholder="••••••••"
-              class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-slate-900 placeholder-slate-400 text-sm"
-            />
+            <!-- Password Input Field -->
+            <input type="password" id="password" class="form-control" placeholder="Enter your password" readonly onfocus="this.removeAttribute('readonly');">
           </div>
         </div>
 

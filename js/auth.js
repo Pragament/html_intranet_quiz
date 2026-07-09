@@ -115,13 +115,7 @@ window.renderHeader = function(user) {
                 </button>
               </div>
             ` : `
-              <a
-                href="login.html"
-                class="inline-flex items-center gap-1.5 px-4 py-2 border border-transparent rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 transition-all duration-200 shadow-sm shadow-blue-100"
-              >
-                <i data-lucide="log-in" class="w-4 h-4"></i>
-                Teacher Login
-              </a>
+              <!-- No Teacher Login button for student view -->
             `}
           </div>
         </div>
@@ -138,6 +132,7 @@ window.renderHeader = function(user) {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await window.supabaseClient.auth.signOut();
+      // Clear inputs on login page once redirected
       window.location.href = 'login.html';
     });
   }

@@ -51,6 +51,7 @@ create table public.student_results (
     student_name text not null,
     score integer not null,
     total_questions integer not null,
+    response_snapshot jsonb not null default '[]'::jsonb,
     completed_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -116,6 +117,10 @@ create policy "Authenticated users can read results"
   on public.student_results for select
   using (auth.role() = 'authenticated');
 
+
+-- Existing projects: run this once if student_results already exists.
+alter table public.student_results
+  add column if not exists response_snapshot jsonb not null default '[]'::jsonb;
 -- 6. Student Responses Table (For individual answers & AI grading workflow)
 create table public.student_responses (
     id uuid default uuid_generate_v4() primary key,
@@ -123,6 +128,7 @@ create table public.student_responses (
     student_result_id uuid references public.student_results(id) on delete cascade,
     student_name text not null,
     question_text text not null,
+    question_bank_id uuid references public.question_bank(id) on delete cascade,
     student_answer text not null,
     question_type text not null default 'MCQ', -- 'MCQ', 'FIB', or 'Short Answer'
     marks_assigned integer,

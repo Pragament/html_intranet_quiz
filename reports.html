@@ -248,6 +248,21 @@
     </div>
   </div>
 
+  <!-- Detailed Question Review Modal -->
+  <div id="questionReviewModal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto animate-slide-up">
+      <div class="flex justify-between items-center mb-6">
+        <h2 id="questionReviewTitle" class="text-xl font-bold text-slate-900">Review Responses</h2>
+        <button id="closeQuestionReview" class="text-slate-400 hover:text-slate-600 transition-colors">
+          <i data-lucide="x" class="w-6 h-6"></i>
+        </button>
+      </div>
+      <div id="questionReviewContent" class="space-y-4">
+        <!-- Dynamic content here -->
+      </div>
+    </div>
+  </div>
+
   <!-- CDNs for JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>

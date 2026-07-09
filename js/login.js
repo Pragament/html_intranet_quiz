@@ -1,4 +1,14 @@
 // js/login.js
+
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(() => {
+    const emailField = document.getElementById('email');
+    const passwordField = document.getElementById('password');
+    if (emailField) emailField.value = '';
+    if (passwordField) passwordField.value = '';
+  }, 50);
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Check if user is already logged in (redirects to dashboard if so)
   await window.checkAuth();

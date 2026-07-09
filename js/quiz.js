@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Parse URL query code
   const urlParams = new URLSearchParams(window.location.search);
   const code = urlParams.get('code');
-  
+
   if (!code) {
     window.location.href = 'index.html';
     return;
@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Seeded deterministic random number generator + Fisher-Yates shuffle
   function shuffleQuestions(list, seed) {
     const arr = [...list];
-    
+
     // Create numeric hash from seed string
     let seedVal = 0;
     for (let i = 0; i < seed.length; i++) {
@@ -127,14 +127,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       questions = items;
-      
+
       // Hide loading spinner, show quiz layout
       loaderArea.classList.add('hidden');
       quizArea.classList.remove('hidden');
 
       // Start timer countdown
       startTimer();
-      
+
       // Render first question
       renderCurrentQuestion();
     } catch (err) {
@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Render question card
   function renderCurrentQuestion() {
     const q = questions[currentIdx];
-    
+
     // Update Badges
     roundBadge.textContent = `Round ${currentRound} of ${quiz.rounds}`;
     questionBadge.textContent = `Question ${currentIdx + 1} of ${questions.length}`;
@@ -252,7 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Navigation Buttons configuration
     prevBtn.disabled = currentIdx === 0;
-    
+
     const isLastQuestionOfLastRound = currentIdx === questions.length - 1 && currentRound === quiz.rounds;
 
     if (isLastQuestionOfLastRound) {
@@ -325,6 +325,99 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  function isMissingSchemaItem(error, itemName) {
+    const code = error?.code || '';
+    const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+    const needle = itemName.toLowerCase();
+    return (
+      message.includes(needle) &&
+      (code === 'PGRST204' || code === 'PGRST205' || code === '42703' || code === '42P01' || message.includes('schema cache') || message.includes('does not exist') || message.includes('could not find'))
+    );
+  }
+
+  function isAnswerCorrect(question, studentAnswer) {
+    const studentValue = String(studentAnswer || '').trim();
+    const correctValue = String(question.correct_option || '').trim();
+    return Boolean(studentValue && correctValue && studentValue.toUpperCase() === correctValue.toUpperCase());
+  }
+
+  function buildResponseSnapshot() {
+    return questions.map((q, index) => ({
+      quiz_id: quiz.id,
+      question_bank_id: q.id,
+      question_text: q.question_text,
+      student_answer: answers[q.id] || '',
+      question_type: q.type || 'MCQ',
+      question_order: index + 1,
+    }));
+  }
+
+  function saveLocalResponseSnapshot(resultId, responseSnapshot) {
+    if (!resultId) return;
+
+    try {
+      const storageKey = 'quiz_response_snapshots';
+      const existing = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      existing[String(resultId)] = {
+        saved_at: new Date().toISOString(),
+        responses: responseSnapshot,
+      };
+
+      const entries = Object.entries(existing).sort((a, b) => {
+        return new Date(b[1]?.saved_at || 0) - new Date(a[1]?.saved_at || 0);
+      });
+      localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries.slice(0, 100))));
+    } catch (err) {
+      console.warn('Could not save local response snapshot:', err);
+    }
+  }
+  async function insertStudentResult(basePayload, responseSnapshot) {
+    let { data, error } = await window.supabaseClient
+      .from('student_results')
+      .insert({ ...basePayload, response_snapshot: responseSnapshot })
+      .select();
+
+    if (error && isMissingSchemaItem(error, 'response_snapshot')) {
+      ({ data, error } = await window.supabaseClient
+        .from('student_results')
+        .insert(basePayload)
+        .select());
+    }
+
+    if (error) throw error;
+    return data && data.length > 0 ? data[0] : null;
+  }
+
+  async function insertStudentResponses(studentResultId, responseSnapshot) {
+    if (!studentResultId) return;
+
+    const responsesPayload = responseSnapshot.map((resp) => ({
+      quiz_id: resp.quiz_id,
+      student_result_id: studentResultId,
+      student_name: studentName,
+      question_text: resp.question_text,
+      question_bank_id: resp.question_bank_id,
+      student_answer: resp.student_answer,
+      question_type: resp.question_type,
+      marks_assigned: null,
+      ai_reasoning: null,
+    }));
+
+    window.lastSentResponsesPayload = responsesPayload;
+    console.log('FULL RESPONSES PAYLOAD BEING SENT TO SUPABASE:', responsesPayload);
+
+    const { error } = await window.supabaseClient
+      .from('student_responses')
+      .insert(responsesPayload);
+
+    if (error) {
+      if (isMissingSchemaItem(error, 'student_responses')) {
+        console.warn('student_responses table not found; response_snapshot will be used when available:', error);
+        return;
+      }
+      console.warn('Could not insert student responses; response_snapshot will be used when available:', error);
+    }
+  }
   // Score Calculation & Upload
   async function triggerSubmission() {
     if (submitting) return;
@@ -336,50 +429,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       nextBtnText.textContent = 'Submitting...';
       nextBtn.disabled = true;
 
-      // 1. Calculate Score
-      let finalScore = 0;
-      questions.forEach((q) => {
-        const studentAns = answers[q.id] || '';
-        if (studentAns.trim() && q.correct_option && studentAns.trim().toUpperCase() === q.correct_option.trim().toUpperCase()) {
-          finalScore++;
-        }
-      });
+      // 1. Calculate score and preserve every answer for teacher review.
+      const responseSnapshot = buildResponseSnapshot();
+      const finalScore = questions.reduce((score, q) => {
+        return score + (isAnswerCorrect(q, answers[q.id]) ? 1 : 0);
+      }, 0);
 
-      // 2. Insert to Supabase student_results
-      const { data: resultData, error: resultError } = await window.supabaseClient.from('student_results').insert({
+      // 2. Insert the result row. Newer schemas store response_snapshot here;
+      // older schemas still save the score and use student_responses if available.
+      const resultRow = await insertStudentResult({
         quiz_id: quiz.id,
         student_name: studentName,
         score: finalScore,
         total_questions: questions.length,
-      }).select();
+      }, responseSnapshot);
 
-      if (resultError) throw resultError;
+      saveLocalResponseSnapshot(resultRow?.id, responseSnapshot);
 
-      const studentResultId = resultData && resultData[0] ? resultData[0].id : null;
-
-      // 3. Prepare responses payload
-      const responsesPayload = questions.map((q) => {
-        const studentAns = answers[q.id] || '';
-        return {
-          quiz_id: quiz.id,
-          student_result_id: studentResultId,
-          student_name: studentName,
-          question_text: q.question_text,
-          student_answer: studentAns,
-          question_type: q.type || 'MCQ',
-          marks_assigned: null,
-          ai_reasoning: null
-        };
-      });
-
-      // Insert responses
-      if (responsesPayload.length > 0) {
-        const { error: respError } = await window.supabaseClient.from('student_responses').insert(responsesPayload);
-        if (respError) {
-          console.error('Error inserting student responses. Please make sure the student_responses table exists in Supabase. Error:', respError);
-        }
-      }
-
+      // 3. Keep the row-per-answer table in sync for grading workflows.
+      await insertStudentResponses(resultRow?.id, responseSnapshot);
       window.showToast('Quiz completed and submitted successfully!', 'success');
 
       // 3. Save to sessionStorage
