@@ -60,7 +60,7 @@
 
       <!-- Centered White Quiz Card -->
       <div class="bg-white border border-slate-200 shadow-md rounded-2xl p-8">
-        <form id="join-quiz-form" class="space-y-6">
+        <form id="join-quiz-form" class="space-y-6" autocomplete="off">
           <div>
             <label for="student-name" class="block text-sm font-semibold text-slate-700 mb-1">
               Your Full Name
@@ -71,8 +71,12 @@
               </div>
               <input
                 id="student-name"
+                name="student_name_entry"
                 type="text"
                 required
+                autocomplete="off"
+                autocapitalize="words"
+                data-lpignore="true"
                 placeholder="Enter your name"
                 class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm"
               />
@@ -89,8 +93,17 @@
               </div>
               <input
                 id="access-code"
+                name="quiz_access_code_entry"
                 type="text"
                 required
+                autocomplete="new-password"
+                autocorrect="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                inputmode="text"
+                aria-autocomplete="none"
+                data-lpignore="true"
+                data-form-type="other"
                 placeholder="e.g. QUIZ42"
                 class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm font-mono tracking-wider font-bold"
               />
@@ -125,6 +138,10 @@
 
       // Force uppercase on access code input
       const accessCodeInput = document.getElementById('access-code');
+      const studentNameInput = document.getElementById('student-name');
+      const uniqueFieldSuffix = Date.now().toString(36);
+      accessCodeInput.setAttribute('name', `quiz_code_${uniqueFieldSuffix}`);
+      studentNameInput.setAttribute('name', `student_name_${uniqueFieldSuffix}`);
       accessCodeInput.addEventListener('input', (e) => {
         e.target.value = e.target.value.toUpperCase();
       });

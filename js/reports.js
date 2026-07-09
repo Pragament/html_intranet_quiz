@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // AI Grading Elements
   const aiGradesPasteInput = document.getElementById('aiGradesPasteInput');
+  const btnViewAiGrades = document.getElementById('btnViewAiGrades');
   const btnImportAiGrades = document.getElementById('btnImportAiGrades');
   const aiGradesReviewContainer = document.getElementById('aiGradesReviewContainer');
   const aiGradesReviewTable = document.getElementById('aiGradesReviewTable');
@@ -97,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (qqError) {
           console.warn('⚠️ [Reports] Error fetching quiz questions:', qqError);
         } else {
+          console.log('📥 [Reports] All quizQuestions:', quizQuestions);
           // Initialize map with 0 for all quizzes
           quizFibShortCountMap = {};
           quizIds.forEach(id => quizFibShortCountMap[id] = 0);
@@ -104,10 +106,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           // Count FIB/Short Answer
           if (quizQuestions) {
             quizQuestions.forEach(qq => {
+              console.log('👉 [Reports] Processing quiz question:', qq);
               if (qq.question_bank) {
                 const qType = qq.question_bank.type || 'MCQ';
-                if (qType === 'FIB' || qType === 'Short Answer') {
+                console.log('   [Reports] qType:', qType);
+                if (qType === 'FIB' || qType === 'Short Answer' || qType === 'SHORT_ANSWER' || qType === 'Fill in the Blanks') {
                   quizFibShortCountMap[qq.quiz_id] = (quizFibShortCountMap[qq.quiz_id] || 0) + 1;
+                  console.log('   [Reports] Incremented count for quiz', qq.quiz_id, 'to', quizFibShortCountMap[qq.quiz_id]);
                 }
               }
             });
@@ -631,14 +636,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function fetchResultRow(resultId) {
     let { data, error } = await window.supabaseClient
       .from('student_results')
-      .select('id, quiz_id, student_name, score, total_questions, response_snapshot')
+      .select('id, quiz_id, student_name, score, total_questions, completed_at, response_snapshot')
       .eq('id', resultId)
       .maybeSingle();
 
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
       ({ data, error } = await window.supabaseClient
         .from('student_results')
-        .select('id, quiz_id, student_name, score, total_questions')
+        .select('id, quiz_id, student_name, score, total_questions, completed_at')
         .eq('id', resultId)
         .maybeSingle());
 
@@ -668,13 +673,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   function getLocalResponseSnapshot(resultId, resultRow) {
     try {
       const stored = JSON.parse(localStorage.getItem('quiz_response_snapshots') || '{}');
-      const entry = stored[String(resultId)];
-      return normalizeResponseSnapshot(entry?.responses, resultRow);
+      const directEntry = stored[String(resultId)];
+      if (directEntry?.responses) {
+        return normalizeResponseSnapshot(directEntry.responses, resultRow);
+      }
+
+      const latestKey = `latest:${resultRow?.quiz_id}:${resultRow?.student_name}`;
+      const latestEntry = stored[latestKey];
+      if (latestEntry?.responses) {
+        return normalizeResponseSnapshot(latestEntry.responses, resultRow);
+      }
+
+      const matchingEntry = Object.values(stored)
+        .filter((entry) => entry?.quiz_id === resultRow?.quiz_id && entry?.student_name === resultRow?.student_name)
+        .sort((a, b) => new Date(b?.saved_at || 0) - new Date(a?.saved_at || 0))[0];
+
+      return normalizeResponseSnapshot(matchingEntry?.responses, resultRow);
     } catch (err) {
       console.warn('Could not read local response snapshot:', err);
       return [];
     }
   }
+
   async function fetchStudentResponses(resultId, quizId, studentName) {
     const { data: linkedResponses, error: linkedError } = await window.supabaseClient
       .from('student_responses')
@@ -724,24 +744,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       correctAnswer = correctLetter;
       studentCompare = studentLetter;
       correctCompare = correctLetter;
-
-      if (!rawStudent || !studentLetter || !correctLetter) {
-        isCorrect = false;
-      } else {
-        isCorrect = studentLetter.toUpperCase() === correctLetter.toUpperCase();
-      }
+      isCorrect = Boolean(rawStudent && studentLetter && correctLetter && studentLetter.toUpperCase() === correctLetter.toUpperCase());
     } else if (typeKey === 'FIB') {
       countsTowardAutoScore = true;
       correctAnswer = String(question.correct_option || '').trim();
       studentCompare = rawStudent;
       correctCompare = correctAnswer;
       const cleanCorrectAns = correctAnswer.toLowerCase();
-
-      if (!cleanStudentAns || !cleanCorrectAns) {
-        isCorrect = false;
-      } else {
-        isCorrect = cleanStudentAns === cleanCorrectAns;
-      }
+      isCorrect = Boolean(cleanStudentAns && cleanCorrectAns && cleanStudentAns === cleanCorrectAns);
     } else {
       countsTowardAutoScore = true;
       correctAnswer = String(question.correct_option || '').trim();
@@ -767,7 +777,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
   }
 
-  function renderAnswerBox(label, value, colorClass, emptyText = 'No answer provided') {
+  function renderAnswerBox(label, value, colorClass, emptyText = 'Student not enter') {
     const displayValue = (value == null ? '' : String(value).trim()) || emptyText;
 
     return `
@@ -922,7 +932,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       const resultRow = await fetchResultRow(resultId);
-
       const resolvedQuizId = quizId || resultRow?.quiz_id;
       const resolvedStudentName = studentName || resultRow?.student_name || '';
 
@@ -934,15 +943,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (qqError) throw qqError;
 
       const snapshotResponses = normalizeResponseSnapshot(resultRow?.response_snapshot, resultRow);
-      const tableResponses = snapshotResponses.length > 0
-        ? []
-        : await fetchStudentResponses(resultId, resolvedQuizId, resolvedStudentName);
-      const localResponses = snapshotResponses.length === 0 && tableResponses.length === 0
-        ? getLocalResponseSnapshot(resultId, resultRow)
-        : [];
-      const responses = snapshotResponses.length > 0
-        ? snapshotResponses
-        : (tableResponses.length > 0 ? tableResponses : localResponses);
+            const tableResponses = await fetchStudentResponses(resultId, resolvedQuizId, resolvedStudentName);
+                  const localResponses = snapshotResponses.length === 0 && tableResponses.length === 0
+              ? getLocalResponseSnapshot(resultId, resultRow)
+              : [];
+            // Merge grading data from student_responses into snapshot, so manual grades
+            // (marks_assigned, ai_reasoning) survive even when response_snapshot is present.
+            if (snapshotResponses.length > 0 && tableResponses.length > 0) {
+              const tableMap = new Map();
+              tableResponses.forEach(r => { const k = (r.question_text || '').trim().toLowerCase(); if (k) tableMap.set(k, r); });
+              snapshotResponses.forEach(r => {
+                const k = (r.question_text || '').trim().toLowerCase();
+                const tr = k ? tableMap.get(k) : null;
+                if (tr) {
+                  if (tr.marks_assigned != null) r.marks_assigned = tr.marks_assigned;
+                  if (tr.ai_reasoning) r.ai_reasoning = tr.ai_reasoning;
+                }
+              });
+            }
+            const responses = snapshotResponses.length > 0
+              ? snapshotResponses
+              : (tableResponses.length > 0 ? tableResponses : localResponses);
       const responseMaps = buildResponseLookupMaps(responses);
 
       if (!quizQuestions || quizQuestions.length === 0) {
@@ -1049,7 +1070,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.lucide.createIcons();
     }
   }
-
   // Event delegation for btn-view-responses in reports container
   reportsContainer.addEventListener('click', (e) => {
     const btn = e.target.closest('.btn-view-responses');
@@ -1090,6 +1110,222 @@ document.addEventListener('DOMContentLoaded', async () => {
     );
   });
 
+  const detailedCsvHeaders = [
+    'submission_id',
+    'quiz_code',
+    'student_name',
+    'quiz_title',
+    'completed_at',
+    'current_score',
+    'total_questions',
+    'percentage',
+    'question_index',
+    'question_type',
+    'question_text',
+    'student_answer',
+    'correct_key',
+    'assigned_marks',
+    'ai_reasoning'
+  ];
+
+  function rowsToCsv(rows) {
+    return rows
+      .map((row) =>
+        row
+          .map((val) => {
+            const escaped = (val == null ? '' : String(val)).replace(/"/g, '""');
+            return `"${escaped}"`;
+          })
+          .join(',')
+      )
+      .join('\n');
+  }
+
+  function buildAiGradingPrompt(csvContent) {
+    return [
+      'AI GRADING PROMPT FOR CHATGPT/GEMINI',
+      'You are grading quiz submissions for a teacher.',
+      'Use the INPUT CSV below. Each input row is one question from one student submission.',
+      'Rows repeat student and quiz details; group rows by submission_id. question_index starts at 1 for each student.',
+      'For MCQ questions, use the correct_key and student_answer to decide correctness.',
+      'For FIB and SHORT_ANSWER questions, compare the student_answer with correct_key and give credit only when the meaning is correct.',
+      'The quiz website needs a paste-back grading CSV. Return exactly one output row per submission_id, not one row per question.',
+      'Return ONLY raw CSV text. Do not use markdown, code fences, headings, bullets, or extra explanation.',
+      'The returned CSV must have exactly this header and only these three columns:',
+      'submission_id,score,ai_reasoning',
+      'score must be a whole number from 0 to total_questions and must be the final total correct answers for that submission.',
+      'ai_reasoning should be a short note about the grading decision. If it contains commas, wrap it in CSV quotes.',
+      '',
+      'INPUT CSV:',
+      csvContent
+    ].join('\n');
+  }
+  function extractCsvSection(rawText, requiredHeaders = ['submission_id']) {
+    const lines = String(rawText || '')
+      .replace(/```(?:csv)?/gi, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const headerIndex = lines.findIndex((line) => {
+      const lower = line.toLowerCase();
+      return requiredHeaders.every((header) => lower.includes(header.toLowerCase()));
+    });
+
+    return (headerIndex >= 0 ? lines.slice(headerIndex) : lines).join('\n');
+  }
+
+  function extractAiGradesCsvSection(rawText) {
+    const lines = String(rawText || '')
+      .replace(/```(?:csv)?/gi, '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const headerIndexes = [];
+    lines.forEach((line, index) => {
+      const cols = parseCsvLine(line).map((col) => col.trim().replace(/^"|"$/g, '').toLowerCase());
+      if (cols.includes('submission_id') && cols.includes('score') && cols.includes('ai_reasoning')) {
+        headerIndexes.push(index);
+      }
+    });
+
+    if (headerIndexes.length === 0) return '';
+
+    const headerIndex = headerIndexes[headerIndexes.length - 1];
+    const section = [lines[headerIndex]];
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    for (let i = headerIndex + 1; i < lines.length; i++) {
+      const row = parseCsvLine(lines[i]);
+      const submissionId = (row[0] || '').trim();
+      const score = (row[1] || '').trim();
+      if (uuidPattern.test(submissionId) && /^\d+$/.test(score)) {
+        section.push(lines[i]);
+      }
+    }
+
+    return section.length > 1 ? section.join('\n') : '';
+  }
+  function getCurrentlyFilteredResults() {
+    let filtered = results;
+    if (filterQuizCode) {
+      filtered = filtered.filter(r => (r.quizzes?.access_code || '').toUpperCase() === filterQuizCode.toUpperCase());
+    }
+    if (filterDate) {
+      const dateParts = filterDate.split('-');
+      if (dateParts.length === 3 && dateParts[0].length === 4) {
+        filtered = filtered.filter(r => new Date(r.completed_at).toISOString().split('T')[0] === filterDate);
+      }
+    }
+    if (filterTime) {
+      const timeParts = filterTime.split(':');
+      if (timeParts.length === 2 && timeParts[0].length === 2) {
+        filtered = filtered.filter(r => {
+          const d = new Date(r.completed_at);
+          return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') === filterTime;
+        });
+      }
+    }
+    return filtered;
+  }
+
+  function mergeTableGradesIntoSnapshot(snapshotResponses, tableResponses) {
+    if (snapshotResponses.length === 0 || tableResponses.length === 0) return;
+
+    const tableMap = new Map();
+    tableResponses.forEach((resp) => {
+      const key = (resp.question_text || '').trim().toLowerCase();
+      if (key) tableMap.set(key, resp);
+    });
+
+    snapshotResponses.forEach((resp) => {
+      const key = (resp.question_text || '').trim().toLowerCase();
+      const tableResp = key ? tableMap.get(key) : null;
+      if (!tableResp) return;
+      if (tableResp.marks_assigned != null) resp.marks_assigned = tableResp.marks_assigned;
+      if (tableResp.ai_reasoning) resp.ai_reasoning = tableResp.ai_reasoning;
+    });
+  }
+
+  async function buildDetailedCsvRowsForResult(result) {
+    const submissionId = result.id;
+    const resultRow = await fetchResultRow(submissionId);
+    const resultContext = resultRow || result;
+    const quizId = result.quiz_id || resultRow?.quiz_id;
+    const resolvedStudentName = resultRow?.student_name || result.student_name || '';
+    const quizTitle = result.quizzes?.title || 'Unknown Quiz';
+    const quizCode = result.quizzes?.access_code || '';
+
+    if (!quizId) return [];
+
+    const { data: quizQuestions, error: qqError } = await window.supabaseClient
+      .from('quiz_questions')
+      .select('*, question_bank(*)')
+      .eq('quiz_id', quizId);
+
+    if (qqError) throw qqError;
+
+    const snapshotResponses = normalizeResponseSnapshot(resultRow?.response_snapshot, resultContext);
+    const tableResponses = await fetchStudentResponses(submissionId, quizId, resolvedStudentName);
+    const localResponses = snapshotResponses.length === 0 && tableResponses.length === 0
+      ? getLocalResponseSnapshot(submissionId, resultContext)
+      : [];
+
+    mergeTableGradesIntoSnapshot(snapshotResponses, tableResponses);
+
+    const responses = snapshotResponses.length > 0
+      ? snapshotResponses
+      : (tableResponses.length > 0 ? tableResponses : localResponses);
+    const responseMaps = buildResponseLookupMaps(responses);
+    const currentScore = Number(resultRow?.score ?? result.score ?? 0);
+    const totalQuestions = Number(resultRow?.total_questions ?? result.total_questions ?? 0);
+    const percentage = totalQuestions > 0 ? Math.round((currentScore / totalQuestions) * 100) : 0;
+
+    return (quizQuestions || []).map((qq, qIndex) => {
+      const question = qq.question_bank;
+      if (!question) return null;
+
+      const studentResp = findStudentResponse(question, responseMaps);
+      const questionType = normalizeQuestionType(question.type || studentResp?.question_type);
+      const rawStudentAnswer = studentResp ? String(studentResp.student_answer || '').trim() : '';
+      const studentAnswer = questionType === 'MCQ'
+        ? formatMcqAnswerLabel(normalizeMcqLetter(rawStudentAnswer, question), question)
+        : rawStudentAnswer;
+      const correctKey = questionType === 'MCQ'
+        ? formatMcqAnswerLabel(getMcqCorrectLetter(question), question)
+        : (question.correct_option || '');
+
+      return [
+        submissionId,
+        quizCode,
+        resolvedStudentName,
+        quizTitle,
+        resultRow?.completed_at || result.completed_at || '',
+        currentScore,
+        totalQuestions,
+        percentage,
+        qIndex + 1,
+        questionType,
+        question.question_text || '',
+        studentAnswer,
+        correctKey,
+        studentResp?.marks_assigned ?? '',
+        studentResp?.ai_reasoning || ''
+      ];
+    }).filter(Boolean);
+  }
+
+  async function buildDetailedCsvTextForResults(list, includeAiPrompt = true) {
+    const allRows = [detailedCsvHeaders];
+    for (const result of list) {
+      const rows = await buildDetailedCsvRowsForResult(result);
+      allRows.push(...rows);
+    }
+
+    const csvContent = rowsToCsv(allRows);
+    return includeAiPrompt ? buildAiGradingPrompt(csvContent) : csvContent;
+  }
   // Event delegation for copy CSV buttons
   reportsContainer.addEventListener('click', async (e) => {
     const btn = e.target.closest('.copy-csv-btn');
@@ -1114,123 +1350,206 @@ document.addEventListener('DOMContentLoaded', async () => {
       filterTime = '';
       filterAndRender();
     } else if (e.target.id === 'btnCopyAllCsv') {
-      // Get currently filtered list
-      let filtered = results;
-      if (filterQuizCode) {
-        filtered = filtered.filter(r => (r.quizzes?.access_code || '').toUpperCase() === filterQuizCode.toUpperCase());
-      }
-      if (filterDate) {
-        const dateParts = filterDate.split('-');
-        if (dateParts.length === 3 && dateParts[0].length === 4) {
-          filtered = filtered.filter(r => new Date(r.completed_at).toISOString().split('T')[0] === filterDate);
+      const btn = e.target;
+      const originalText = btn.textContent;
+      btn.textContent = 'Building...';
+      btn.disabled = true;
+
+      try {
+        const filtered = getCurrentlyFilteredResults();
+        if (filtered.length === 0) {
+          window.showToast('No records to copy', 'warning');
+          return;
         }
+
+        const csvContent = await buildDetailedCsvTextForResults(filtered, true);
+        await navigator.clipboard.writeText(csvContent);
+        window.showToast('Detailed AI CSV prompt copied!', 'success');
+      } catch (err) {
+        console.error('Error copying all CSV:', err);
+        window.showToast(err.message || 'Failed to copy all CSV', 'error');
+      } finally {
+        btn.textContent = originalText;
+        btn.disabled = false;
       }
-      if (filterTime) {
-        const timeParts = filterTime.split(':');
-        if (timeParts.length === 2 && timeParts[0].length === 2) {
-          filtered = filtered.filter(r => {
-            const d = new Date(r.completed_at);
-            return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') === filterTime;
-          });
-        }
-      }
-
-      // Build CSV
-      const csvRows = [
-        ['submission_id', 'student_name', 'quiz_title', 'quiz_code']
-      ];
-      filtered.forEach(result => {
-        const title = result.quizzes?.title || 'Unknown Quiz';
-        const code = result.quizzes?.access_code || '';
-        csvRows.push([
-          result.id,
-          result.student_name,
-          title,
-          code
-        ]);
-      });
-
-      const csvContent = csvRows
-        .map((row) =>
-          row
-            .map((val) => {
-              const escaped = (val || '').toString().replace(/"/g, '""');
-              return `"${escaped}"`;
-            })
-            .join(',')
-        )
-        .join('\n');
-
-      // Copy to clipboard
-      await navigator.clipboard.writeText(csvContent);
-      window.showToast('Bulk CSV Copied!', 'success');
     }
   });
 
   // View CSV Button Handler
   btnViewCsvPlain.addEventListener('click', () => {
     const rawText = manualCsvInput.value.trim();
+    console.log('📥 btnViewCsvPlain clicked! rawText:', rawText);
     if (!rawText) {
       window.showToast('Please paste CSV text first', 'warning');
       return;
     }
 
     try {
-      // Parse CSV (simple comma split, handle quoted fields if needed)
-      const lines = rawText.split('\n');
-      if (lines.length < 2) {
-        window.showToast('CSV must have at least a header and one data row', 'warning');
+      // Parse CSV lines, trim whitespace. Accept both header + rows and rows only.
+      const csvText = extractCsvSection(rawText, ['submission_id', 'question_text']);
+      const lines = csvText.split('\n').filter(line => line.trim());
+      console.log('CSV lines array:', lines);
+      if (lines.length < 1) {
+        window.showToast('CSV must have at least one data row', 'warning');
         return;
       }
 
-      // Get headers and first data row
-      const headers = parseCsvLine(lines[0]);
-      const dataRow = parseCsvLine(lines[1]);
+      const defaultHeaders = [
+        'submission_id',
+        'student_name',
+        'quiz_title',
+        'question_text',
+        'question_index',
+        'student_answer',
+        'correct_key',
+        'assigned_marks',
+        'ai_reasoning'
+      ];
 
-      const submissionId = dataRow[headers.indexOf('submission_id')] || '';
-      const studentName = dataRow[headers.indexOf('student_name')] || '';
-      const quizTitle = dataRow[headers.indexOf('quiz_title')] || '';
-      const questionText = dataRow[headers.indexOf('question_text')] || '';
-      const studentAnswer = dataRow[headers.indexOf('student_answer')] || '';
-      const correctKey = dataRow[headers.indexOf('correct_key')] || '';
+      let headers = parseCsvLine(lines[0]).map((header) => header.trim().toLowerCase());
+      const hasHeader = defaultHeaders.some((header) => headers.includes(header));
+      let rowStartIndex = 1;
+      if (!hasHeader) {
+        headers = defaultHeaders;
+        rowStartIndex = 0;
+      }
 
-      // Store current data for submission
-      currentCsvData = {
-        submissionId,
-        studentName,
-        quizTitle,
-        questionText,
-        studentAnswer,
-        correctKey,
-        rawText,
-        dataRow,
-        headers
+      console.log('CSV headers:', headers);
+      const dataRows = [];
+      for (let i = rowStartIndex; i < lines.length; i++) {
+        const row = parseCsvLine(lines[i]);
+        console.log(`line ${i} parsed row:`, row);
+        if (row.length > 0) {
+          dataRows.push(row);
+        }
+      }
+
+      console.log('CSV dataRows:', dataRows);
+      if (dataRows.length === 0) {
+        window.showToast('No data rows found in CSV', 'warning');
+        return;
+      }
+
+      const getCell = (row, fieldName) => {
+        const idx = headers.indexOf(fieldName);
+        return idx >= 0 ? (row[idx] || '') : '';
       };
 
-      // Render preview
+      const groupedMap = new Map();
+      dataRows.forEach((row, rowIndex) => {
+        const submissionId = getCell(row, 'submission_id') || `row-${rowIndex}`;
+        if (!groupedMap.has(submissionId)) {
+          groupedMap.set(submissionId, {
+            submissionId,
+            quizId: getCell(row, 'quiz_id'),
+            quizCode: getCell(row, 'quiz_code'),
+            studentName: getCell(row, 'student_name'),
+            quizTitle: getCell(row, 'quiz_title'),
+            completedAt: getCell(row, 'completed_at'),
+            currentScore: getCell(row, 'current_score'),
+            totalQuestions: getCell(row, 'total_questions'),
+            percentage: getCell(row, 'percentage'),
+            questions: [],
+          });
+        }
+
+        const group = groupedMap.get(submissionId);
+        const qIndex = getCell(row, 'question_index');
+        const questionText = getCell(row, 'question_text');
+
+        if (questionText || getCell(row, 'student_answer') || getCell(row, 'correct_key')) {
+          group.questions.push({
+            questionIndex: qIndex,
+            questionType: getCell(row, 'question_type'),
+            questionText,
+            studentAnswer: getCell(row, 'student_answer'),
+            correctKey: getCell(row, 'correct_key'),
+            assignedMarks: getCell(row, 'assigned_marks'),
+            aiReasoning: getCell(row, 'ai_reasoning')
+          });
+        }
+      });
+
+      const submissionGroups = Array.from(groupedMap.values()).map((group) => ({
+        ...group,
+        questions: group.questions.sort((a, b) => {
+          const aIndex = parseInt(a.questionIndex, 10);
+          const bIndex = parseInt(b.questionIndex, 10);
+          if (Number.isNaN(aIndex) || Number.isNaN(bIndex)) return 0;
+          return aIndex - bIndex;
+        })
+      }));
+
+      if (submissionGroups.length === 0) {
+        window.showToast('No question rows found in CSV', 'warning');
+        return;
+      }
+
+      console.log('Submission groups:', submissionGroups);
+
+      const firstGroup = submissionGroups[0];
+      currentCsvData = submissionGroups.length === 1 ? {
+        submissionId: firstGroup.submissionId,
+        studentName: firstGroup.studentName,
+        quizTitle: firstGroup.quizTitle,
+        questions: firstGroup.questions,
+        rawText,
+        dataRows,
+        headers
+      } : null;
+
+      const renderQuestionHtml = (q, idx) => `
+        <div class="border border-slate-200 rounded-lg p-3 bg-white">
+          <p class="text-xs font-semibold text-slate-700 mb-1">Question ${idx + 1}</p>
+          ${q.questionType ? `<p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-1">${escapeHtml(q.questionType)}</p>` : ''}
+          <p class="text-xs text-slate-900 mb-2">${escapeHtml(q.questionText)}</p>
+          <p class="text-xs"><span class="font-semibold text-slate-600">Student Answer:</span> ${(q.studentAnswer && q.studentAnswer.trim()) ? escapeHtml(q.studentAnswer) : '<em class="text-slate-400">Student not enter</em>'}</p>
+          <p class="text-xs"><span class="font-semibold text-slate-600">Correct Answer:</span> ${escapeHtml(q.correctKey)}</p>
+        </div>
+      `;
+
+      const groupsHtml = submissionGroups.map((group, groupIndex) => `
+        <div class="border border-slate-200 rounded-xl bg-white/70 p-3 space-y-3">
+          <div class="text-xs space-y-1.5">
+            <p class="font-bold text-slate-800">Student ${groupIndex + 1}</p>
+            <p><span class="font-semibold text-slate-600">Student:</span> ${escapeHtml(group.studentName)}</p>
+            <p><span class="font-semibold text-slate-600">Quiz:</span> ${escapeHtml(group.quizTitle)}</p>
+            ${group.quizCode ? `<p><span class="font-semibold text-slate-600">Quiz Code:</span> <span class="font-mono">${escapeHtml(group.quizCode)}</span></p>` : ''}
+            ${group.currentScore || group.totalQuestions ? `<p><span class="font-semibold text-slate-600">Score:</span> ${escapeHtml(group.currentScore || '0')} / ${escapeHtml(group.totalQuestions || String(group.questions.length))}</p>` : ''}
+          </div>
+          <div class="pt-2 border-t border-slate-200">
+            <h4 class="text-xs font-semibold text-slate-700 mb-2">Questions (${group.questions.length})</h4>
+            <div class="space-y-2">
+              ${group.questions.map(renderQuestionHtml).join('')}
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      const canManualGrade = submissionGroups.length === 1;
+
       csvPlainPreview.innerHTML = `
         <div class="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50">
           <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
             <i data-lucide="file-text" class="w-4 h-4"></i>
             Plain Text Preview
           </h3>
-          <div class="text-xs space-y-1.5">
-            <p><span class="font-semibold text-slate-600">Student:</span> ${escapeHtml(studentName)}</p>
-            <p><span class="font-semibold text-slate-600">Quiz:</span> ${escapeHtml(quizTitle)}</p>
-            <p><span class="font-semibold text-slate-600">Question:</span> ${escapeHtml(questionText)}</p>
-            <p><span class="font-semibold text-slate-600">Student Answer:</span> ${escapeHtml(studentAnswer)}</p>
-            <p><span class="font-semibold text-slate-600">Correct Key:</span> ${escapeHtml(correctKey)}</p>
-          </div>
           <div class="pt-2 border-t border-slate-200">
-            <label class="text-xs font-semibold text-slate-700 block mb-1.5">Enter Custom Marks (out of 5):</label>
-            <input type="number" id="manualMarksGiven" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500" min="0" max="5" placeholder="e.g., 4">
+            <h4 class="text-xs font-semibold text-slate-700 mb-2">${submissionGroups.length === 1 ? `Questions (${firstGroup.questions.length})` : `Submissions (${submissionGroups.length})`}</h4>
+            <div class="space-y-3 max-h-64 overflow-y-auto">
+              ${groupsHtml}
+            </div>
           </div>
+          ${canManualGrade ? `
+            <div class="pt-2 border-t border-slate-200">
+              <label class="text-xs font-semibold text-slate-700 block mb-1.5">Enter Grades (question number + grade, e.g., "2 C, 4 5"):</label>
+              <textarea id="manualMarksGiven" rows="3" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y" placeholder="2 C&#10;4 5"></textarea>
+            </div>
+          ` : ''}
         </div>
       `;
       window.lucide.createIcons();
-
-      // Enable Submit button
-      btnSubmitCsvGrade.disabled = false;
+      btnSubmitCsvGrade.disabled = !canManualGrade;
     } catch (err) {
       console.error('Error parsing CSV:', err);
       window.showToast('Error parsing CSV: ' + err.message, 'error');
@@ -1245,11 +1564,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     const marksInput = document.getElementById('manualMarksGiven');
-    const marks = marksInput ? parseInt(marksInput.value, 10) : NaN;
+    const gradesStr = marksInput ? marksInput.value.trim() : '';
 
-    if (isNaN(marks) || marks < 0 || marks > 5) {
-      window.showToast('Please enter valid marks between 0 and 5', 'warning');
+    let gradeEntries;
+    try {
+      gradeEntries = parseManualGradeEntries(gradesStr, currentCsvData.questions.length);
+    } catch (err) {
+      window.showToast(err.message, 'warning');
       return;
+    }
+
+    if (gradeEntries.size === 0) {
+      window.showToast('Please enter at least one grade, e.g., "2 C" or "4 5"', 'warning');
+      return;
+    }
+
+    for (const [questionIndex, gradeRaw] of gradeEntries.entries()) {
+      const mark = manualGradeToMark(gradeRaw, currentCsvData.questions[questionIndex]);
+      if (mark === null || isNaN(mark) || mark < 0 || mark > 5) {
+        window.showToast(`Grade for question ${questionIndex + 1} must be a number from 0 to 5 or an alphabet`, 'warning');
+        return;
+      }
     }
 
     const originalText = btnSubmitCsvGrade.textContent;
@@ -1257,17 +1592,65 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnSubmitCsvGrade.textContent = 'Saving...';
 
     try {
-      // Get the total questions for this result to calculate percentage
-      const existingResult = results.find(r => r.id === currentCsvData.submissionId);
-      const totalQuestions = existingResult ? existingResult.total_questions : 1;
+      const resultRow = await fetchResultRow(currentCsvData.submissionId);
+      const quizId = resultRow?.quiz_id || null;
+      const resolvedStudentName = resultRow?.student_name || currentCsvData.studentName;
+      const existingResponses = quizId
+        ? await fetchStudentResponses(currentCsvData.submissionId, quizId, resolvedStudentName)
+        : [];
 
-      // Update student_results with new score
-      const { error: updateError } = await window.supabaseClient
+      const responseMap = new Map();
+      existingResponses.forEach((resp, idx) => {
+        if (!resp.question_text) return;
+        const qText = resp.question_text.trim().toLowerCase();
+        if (!responseMap.has(qText)) {
+          responseMap.set(qText, []);
+        }
+        responseMap.get(qText).push({ id: resp.id, index: idx, response: resp });
+      });
+
+      for (const [questionIndex, gradeRaw] of gradeEntries.entries()) {
+        const q = currentCsvData.questions[questionIndex];
+        const marksToAssign = manualGradeToMark(gradeRaw, q);
+        const gradeNote = `Manual grade: ${gradeRaw}`;
+
+        const qTextKey = (q.questionText || '').trim().toLowerCase();
+        const responsesForQ = responseMap.get(qTextKey) || [];
+        const responseId = responsesForQ[0]?.id || null;
+
+        if (responseId) {
+          const { error: updateRespError } = await window.supabaseClient
+            .from('student_responses')
+            .update({ marks_assigned: marksToAssign, ai_reasoning: gradeNote })
+            .eq('id', responseId);
+
+          if (updateRespError) throw updateRespError;
+        } else if (quizId) {
+          const { error: insertRespError } = await window.supabaseClient
+            .from('student_responses')
+            .insert({
+              quiz_id: quizId,
+              student_result_id: currentCsvData.submissionId,
+              student_name: resolvedStudentName,
+              question_text: q.questionText || '',
+              question_bank_id: null,
+              student_answer: q.studentAnswer || '',
+              question_type: 'Manual',
+              marks_assigned: marksToAssign,
+              ai_reasoning: gradeNote,
+            });
+
+          if (insertRespError) throw insertRespError;
+        }
+      }
+
+      const correctedCount = calculateManualScore(currentCsvData.questions, gradeEntries);
+      const { error: updateResultError } = await window.supabaseClient
         .from('student_results')
-        .update({ score: marks })
+        .update({ score: correctedCount })
         .eq('id', currentCsvData.submissionId);
 
-      if (updateError) throw updateError;
+      if (updateResultError) throw updateResultError;
 
       // Success!
       window.showToast(`Successfully updated marks for ${currentCsvData.studentName}!`, 'success');
@@ -1289,6 +1672,81 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  function parseManualGradeEntries(input, questionCount) {
+    const entries = new Map();
+    const raw = String(input || '').trim();
+    if (!raw) return entries;
+
+    const parts = raw
+      .split(/[\n,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    parts.forEach((part) => {
+      const match = part.match(/^(\d+)\s+(.+)$/);
+      if (!match) {
+        throw new Error('Use question number then grade, e.g., "2 C" or "4 5"');
+      }
+
+      const questionNumber = parseInt(match[1], 10);
+      const grade = match[2].trim();
+
+      if (!questionNumber || questionNumber < 1 || questionNumber > questionCount) {
+        throw new Error(`Question number must be between 1 and ${questionCount}`);
+      }
+      if (!grade) {
+        throw new Error(`Missing grade for question ${questionNumber}`);
+      }
+
+      entries.set(questionNumber - 1, grade);
+    });
+
+    return entries;
+  }
+
+  function getLeadingAnswerLetter(value) {
+    const match = String(value || '').trim().match(/^([A-D])(?:\b|[.)\s])/i);
+    return match ? match[1].toUpperCase() : '';
+  }
+
+  function isCsvQuestionCorrect(question) {
+    const studentAnswer = String(question.studentAnswer || '').trim();
+    const correctAnswer = String(question.correctKey || '').trim();
+    if (!studentAnswer || !correctAnswer) return false;
+
+    const studentLetter = getLeadingAnswerLetter(studentAnswer);
+    const correctLetter = getLeadingAnswerLetter(correctAnswer);
+    if (studentLetter && correctLetter) {
+      return studentLetter === correctLetter;
+    }
+
+    return studentAnswer.toLowerCase() === correctAnswer.toLowerCase();
+  }
+
+  function calculateManualScore(questions, gradeEntries) {
+    return questions.reduce((score, question, index) => {
+      if (gradeEntries.has(index)) {
+        return score + (manualGradeToMark(gradeEntries.get(index), question) > 0 ? 1 : 0);
+      }
+      return score + (isCsvQuestionCorrect(question) ? 1 : 0);
+    }, 0);
+  }
+  function manualGradeToMark(rawGrade, question) {
+    const value = String(rawGrade || '').trim();
+    if (!value) return null;
+
+    if (/^-?\d+$/.test(value)) {
+      return parseInt(value, 10);
+    }
+
+    const gradeLetter = value[0].toUpperCase();
+    const correctLetter = String(question.correctKey || '').trim().match(/^([A-D])\b/i)?.[1]?.toUpperCase();
+    if (correctLetter) {
+      return gradeLetter === correctLetter ? 1 : 0;
+    }
+
+    return 1;
+  }
   // Helper to parse CSV line (handles quotes)
   function parseCsvLine(line) {
     const result = [];
@@ -1316,6 +1774,73 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // AI Grading Logic
   let aiGradesData = [];
+  function renderAiGradesReview(rows) {
+    aiGradesData = rows;
+    let valid = true;
+    let tableHtml = '';
+
+    aiGradesData.forEach((row) => {
+      const id = row['submission_id'] || row.submissionId || row['response_id'] || row.responseId || '';
+      const score = row['score'] || row.Score || row['marks_assigned'] || row.marksAssigned || '';
+      const aiReasoning = row['ai_reasoning'] || row.aiReasoning || '';
+
+      if (!id || score === '') {
+        valid = false;
+      }
+
+      tableHtml += `
+        <tr>
+          <td class="px-3 py-2 font-mono text-slate-700">${escapeHtml(id)}</td>
+          <td class="px-3 py-2 font-semibold text-slate-900">${escapeHtml(String(score))}</td>
+          <td class="px-3 py-2 text-slate-600 truncate max-w-xs">${escapeHtml(aiReasoning)}</td>
+        </tr>
+      `;
+    });
+
+    aiGradesReviewTable.innerHTML = tableHtml;
+    aiGradesReviewContainer.classList.remove('hidden');
+    return valid;
+  }
+
+  function parseAiGradesCsv(rawText, onComplete, onError) {
+    const csvText = extractAiGradesCsvSection(rawText);
+    if (!csvText) {
+      onComplete([]);
+      return;
+    }
+    Papa.parse(csvText, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.trim().toLowerCase(),
+      complete: (results) => onComplete(results.data || []),
+      error: onError
+    });
+  }
+
+  btnViewAiGrades.addEventListener('click', () => {
+    const rawText = aiGradesPasteInput.value.trim();
+    if (!rawText) {
+      window.showToast('Please paste the graded CSV first', 'warning');
+      return;
+    }
+
+    parseAiGradesCsv(
+      rawText,
+      (rows) => {
+        if (rows.length === 0) {
+          window.showToast('Paste the AI returned CSV only: submission_id,score,ai_reasoning', 'warning');
+          return;
+        }
+        const valid = renderAiGradesReview(rows);
+        window.showToast(valid ? 'AI grading preview ready' : 'Some AI grading rows are missing required fields', valid ? 'success' : 'warning');
+      },
+      (err) => {
+        console.error('CSV Parsing Error:', err);
+        window.showToast('Error parsing pasted CSV input', 'error');
+      }
+    );
+  });
+
 
   btnImportAiGrades.addEventListener('click', () => {
     const rawText = aiGradesPasteInput.value.trim();
@@ -1330,54 +1855,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     window.lucide.createIcons();
 
     // PapaParse the pasted CSV text
-    Papa.parse(rawText, {
+    const aiCsvText = extractAiGradesCsvSection(rawText);
+    if (!aiCsvText) {
+      window.showToast('Paste the AI returned CSV only: submission_id,score,ai_reasoning', 'warning');
+      resetAiButton(originalText);
+      return;
+    }
+
+    Papa.parse(aiCsvText, {
       header: true,
       skipEmptyLines: true,
       transformHeader: (header) => header.trim().toLowerCase(),
-      complete: (results) => {
-        aiGradesData = results.data;
+      complete: async (results) => {
+        aiGradesData = results.data || [];
         if (aiGradesData.length === 0) {
-          window.showToast('No grading rows found in the pasted CSV', 'warning');
+          window.showToast('Paste the AI returned CSV only: submission_id,score,ai_reasoning', 'warning');
           resetAiButton(originalText);
           return;
         }
 
-        // Validate and show review table
-        let valid = true;
-        let tableHtml = '';
-
-        aiGradesData.forEach((row, idx) => {
-          const id = row['submission_id'] || row.submissionId || row['response_id'] || row.responseId || '';
-          const score = row['score'] || row.Score || row['marks_assigned'] || row.marksAssigned || '';
-          const aiReasoning = row['ai_reasoning'] || row.aiReasoning || '';
-
-          if (!id || score === '') {
-            valid = false;
-          }
-
-          tableHtml += `
-            <tr>
-              <td class="px-3 py-2 font-mono text-slate-700">${escapeHtml(id)}</td>
-              <td class="px-3 py-2 font-semibold text-slate-900">${escapeHtml(String(score))}</td>
-              <td class="px-3 py-2 text-slate-600 truncate max-w-xs">${escapeHtml(aiReasoning)}</td>
-            </tr>
-          `;
-        });
-
-        aiGradesReviewTable.innerHTML = tableHtml;
-        aiGradesReviewContainer.classList.remove('hidden');
-
+        const valid = renderAiGradesReview(aiGradesData);
         if (!valid) {
           window.showToast('Some rows are missing required fields', 'warning');
+          resetAiButton(originalText);
+          return;
         }
 
-        // Change button to "Process Grades"
-        btnImportAiGrades.innerHTML = '<i data-lucide="check-circle" class="w-4 h-4"></i> Process & Update Grades';
-        btnImportAiGrades.classList.remove('bg-purple-600', 'hover:bg-purple-700');
-        btnImportAiGrades.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
-
-        btnImportAiGrades.onclick = processAiGrades;
-        btnImportAiGrades.disabled = false;
+        await processAiGrades();
       },
       error: (err) => {
         console.error('CSV Parsing Error:', err);
@@ -1481,80 +1985,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Handle copying CSV for a submission
   async function handleCopyCsv(btn) {
     const submissionId = btn.dataset.submissionId;
-    const studentName = btn.dataset.studentName;
-    const quizTitle = btn.dataset.quizTitle;
+    const result = results.find((r) => String(r.id) === String(submissionId));
+    const studentName = btn.dataset.studentName || result?.student_name || '';
 
     const originalText = btn.textContent;
     btn.textContent = 'Fetching...';
     btn.disabled = true;
 
     try {
-      // Get the result to find quiz ID
-      const result = results.find(r => r.id === submissionId);
       if (!result) {
         window.showToast('Result not found', 'warning');
         return;
       }
-      const quizId = result.quiz_id;
 
-      // 2. Fetch quiz_questions with question_bank data to get correct_option
-      const { data: quizQuestions, error: qqError } = await window.supabaseClient
-        .from('quiz_questions')
-        .select('*, question_bank(*)')
-        .eq('quiz_id', quizId);
-
-      if (qqError) throw qqError;
-
-      // Create a map from question_text to correct_option
-      const questionCorrectMap = {};
-      if (quizQuestions) {
-        quizQuestions.forEach(qq => {
-          if (qq.question_bank && qq.question_bank.question_text) {
-            questionCorrectMap[qq.question_bank.question_text] = qq.question_bank.correct_option || '';
-          }
-        });
-      }
-
-      // 4. Prepare CSV
-      const csvRows = [
-        ['submission_id', 'student_name', 'quiz_title', 'question_text', 'student_answer', 'correct_key', 'assigned_marks', 'ai_reasoning']
-      ];
-
-      // For each question in the quiz, add a row
-      if (quizQuestions) {
-        quizQuestions.forEach(qq => {
-          if (qq.question_bank) {
-            const questionText = qq.question_bank.question_text;
-            const correctKey = questionCorrectMap[questionText] || '';
-            csvRows.push([
-              submissionId,
-              studentName,
-              quizTitle,
-              questionText,
-              '',
-              correctKey,
-              '',
-              ''
-            ]);
-          }
-        });
-      }
-
-      // 5. Convert to CSV string
-      const csvContent = csvRows
-        .map((row) =>
-          row
-            .map((val) => {
-              const escaped = (val || '').toString().replace(/"/g, '""');
-              return `"${escaped}"`;
-            })
-            .join(',')
-        )
-        .join('\n');
-
-      // 6. Copy to clipboard
+      const csvContent = await buildDetailedCsvTextForResults([result], true);
       await navigator.clipboard.writeText(csvContent);
-      window.showToast(`CSV data for ${studentName} copied to clipboard!`, 'success');
+      window.showToast(`Detailed AI CSV prompt for ${studentName} copied!`, 'success');
     } catch (err) {
       console.error('Error copying CSV:', err);
       window.showToast(err.message || 'Failed to copy CSV', 'error');
