@@ -353,31 +353,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function saveLocalResponseSnapshot(resultId, responseSnapshot) {
-    if (!resultId) return;
-
     try {
       const storageKey = 'quiz_response_snapshots';
       const existing = JSON.parse(localStorage.getItem(storageKey) || '{}');
-      existing[String(resultId)] = {
+      const entry = {
         saved_at: new Date().toISOString(),
+        quiz_id: quiz.id,
+        student_name: studentName,
         responses: responseSnapshot,
       };
+
+      if (resultId) {
+        existing[String(resultId)] = entry;
+      }
+      existing[`latest:${quiz.id}:${studentName}`] = entry;
 
       const entries = Object.entries(existing).sort((a, b) => {
         return new Date(b[1]?.saved_at || 0) - new Date(a[1]?.saved_at || 0);
       });
-      localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries.slice(0, 100))));
+      localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(entries.slice(0, 150))));
     } catch (err) {
       console.warn('Could not save local response snapshot:', err);
     }
   }
+
   async function insertStudentResult(basePayload, responseSnapshot) {
+    let savedWithSnapshot = true;
     let { data, error } = await window.supabaseClient
       .from('student_results')
       .insert({ ...basePayload, response_snapshot: responseSnapshot })
       .select();
 
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
+      savedWithSnapshot = false;
       ({ data, error } = await window.supabaseClient
         .from('student_results')
         .insert(basePayload)
@@ -385,15 +393,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (error) throw error;
-    return data && data.length > 0 ? data[0] : null;
+
+    const row = data && data.length > 0 ? data[0] : null;
+    if (row) row._savedWithSnapshot = savedWithSnapshot;
+    return row;
   }
 
   async function insertStudentResponses(studentResultId, responseSnapshot) {
-    if (!studentResultId) return;
+    if (!responseSnapshot.length) return false;
 
     const responsesPayload = responseSnapshot.map((resp) => ({
       quiz_id: resp.quiz_id,
-      student_result_id: studentResultId,
+      student_result_id: studentResultId || null,
       student_name: studentName,
       question_text: resp.question_text,
       question_bank_id: resp.question_bank_id,
@@ -413,10 +424,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (error) {
       if (isMissingSchemaItem(error, 'student_responses')) {
         console.warn('student_responses table not found; response_snapshot will be used when available:', error);
-        return;
+        return false;
       }
       console.warn('Could not insert student responses; response_snapshot will be used when available:', error);
+      return false;
     }
+
+    return true;
   }
   // Score Calculation & Upload
   async function triggerSubmission() {
@@ -447,7 +461,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       saveLocalResponseSnapshot(resultRow?.id, responseSnapshot);
 
       // 3. Keep the row-per-answer table in sync for grading workflows.
-      await insertStudentResponses(resultRow?.id, responseSnapshot);
+      const responsesSaved = await insertStudentResponses(resultRow?.id, responseSnapshot);
+      if (!resultRow?._savedWithSnapshot && !responsesSaved) {
+        throw new Error('Your score was saved, but the database did not save your answers. Please ask the teacher to run the student answer storage migration.');
+      }
       window.showToast('Quiz completed and submitted successfully!', 'success');
 
       // 3. Save to sessionStorage
@@ -482,3 +499,4 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Start initialization
   loadQuizData();
 });
+

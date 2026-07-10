@@ -161,18 +161,27 @@
           <textarea
             id="aiGradesPasteInput"
             rows="4"
-            placeholder="Paste graded CSV here: response_id, marks_assigned, ai_reasoning"
+            placeholder="Paste graded CSV here: submission_id, score, ai_reasoning"
             class="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-mono focus:border-purple-500 focus:ring-1 focus:ring-purple-500 bg-slate-50/50"
           ></textarea>
-
-          <button
-            type="button"
-            id="btnImportAiGrades"
-            class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold text-xs shadow-sm transition cursor-pointer"
-          >
-            <i data-lucide="upload-cloud" class="w-4 h-4"></i>
-            Import AI Grades (CSV)
-          </button>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              id="btnViewAiGrades"
+              class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold text-xs shadow-sm transition cursor-pointer"
+            >
+              <i data-lucide="eye" class="w-4 h-4"></i>
+              View AI Grades
+            </button>
+            <button
+              type="button"
+              id="btnImportAiGrades"
+              class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold text-xs shadow-sm transition cursor-pointer"
+            >
+              <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+              Import AI Grades (CSV)
+            </button>
+          </div>
 
           <!-- AI Grades Review Queue -->
           <div id="aiGradesReviewContainer" class="mt-4 hidden">
@@ -272,3 +281,4 @@
   <script src="js/reports.js"></script>
 </body>
 </html>
+

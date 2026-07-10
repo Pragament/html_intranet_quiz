@@ -65,16 +65,48 @@ window.checkAuth = async function(requiredRole = 'teacher') {
       window.location.href = 'login.html';
       return null;
     }
+
+    try {
+      await window.ensureTeacherProfile(user);
+    } catch (err) {
+      console.error('Failed to ensure teacher profile:', err);
+      window.showToast('Could not prepare your teacher account. Please sign in again.', 'error');
+      return null;
+    }
   }
 
   if (isLoginPage) {
     if (user) {
+      try {
+        await window.ensureTeacherProfile(user);
+      } catch (err) {
+        console.error('Failed to ensure teacher profile:', err);
+      }
       window.location.href = 'dashboard.html';
       return null;
     }
   }
 
   return user;
+};
+
+window.ensureTeacherProfile = async function(user) {
+  if (!user || !user.id) return;
+
+  const fullName =
+    user.user_metadata?.full_name ||
+    user.user_metadata?.name ||
+    (user.email ? user.email.split('@')[0] : 'Teacher');
+
+  const { error } = await window.supabaseClient
+    .from('profiles')
+    .upsert({
+      id: user.id,
+      email: user.email || '',
+      full_name: fullName,
+    }, { onConflict: 'id' });
+
+  if (error) throw error;
 };
 
 // Expose standard Header render logic
@@ -106,6 +138,13 @@ window.renderHeader = function(user) {
                 <span class="text-sm font-medium text-slate-600 hidden sm:inline-block truncate max-w-[200px]">
                   ${userEmail}
                 </span>
+                <a
+                  href="dashboard.html"
+                  class="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
+                >
+                  <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
+                  Dashboard
+                </a>
                 <button
                   id="logout-btn"
                   class="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200 cursor-pointer"
@@ -115,7 +154,13 @@ window.renderHeader = function(user) {
                 </button>
               </div>
             ` : `
-              <!-- No Teacher Login button for student view -->
+              <a
+                href="login.html"
+                class="inline-flex items-center gap-1.5 px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
+              >
+                <i data-lucide="log-in" class="w-4 h-4 text-slate-500"></i>
+                Teacher Login
+              </a>
             `}
           </div>
         </div>
