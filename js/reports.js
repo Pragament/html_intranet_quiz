@@ -1143,20 +1143,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function buildAiGradingPrompt(csvContent) {
     return [
-      'AI GRADING PROMPT FOR CHATGPT/GEMINI',
-      'You are grading quiz submissions for a teacher.',
-      'Use the INPUT CSV below. Each input row is one question from one student submission.',
-      'Rows repeat student and quiz details; group rows by submission_id. question_index starts at 1 for each student.',
-      'For MCQ questions, use the correct_key and student_answer to decide correctness.',
-      'For FIB and SHORT_ANSWER questions, compare the student_answer with correct_key and give credit only when the meaning is correct.',
-      'The quiz website needs a paste-back grading CSV. Return exactly one output row per submission_id, not one row per question.',
-      'Return ONLY raw CSV text. Do not use markdown, code fences, headings, bullets, or extra explanation.',
-      'The returned CSV must have exactly this header and only these three columns:',
-      'submission_id,score,ai_reasoning',
-      'score must be a whole number from 0 to total_questions and must be the final total correct answers for that submission.',
-      'ai_reasoning should be a short note about the grading decision. If it contains commas, wrap it in CSV quotes.',
+      'You are an AI grading assistant.',
       '',
-      'INPUT CSV:',
+      'Grade ONLY Fill in the Blank (FIB) and Short Answer (SHORT_ANSWER) questions.',
+      'Do NOT change MCQ answers. Keep their existing result when calculating the total score.',
+      '',
+      'For each FIB or SHORT_ANSWER row:',
+      'Compare the student answer with the correct answer using semantic meaning, not exact text.',
+      'The CSV correct_key is the authoritative correct answer. Never replace or override it using the question text, outside knowledge, or assumptions.',
+      'Treat answers that differ only in capitalization or surrounding whitespace as exact matches.',
+      '',
+      'Guidelines:',
+      '1. Exact match = 100%.',
+      '2. Synonyms and equivalent terms = high score. Examples: Water = H2O; Car = Automobile; CPU = Central Processing Unit.',
+      '3. Minor spelling mistakes should not receive zero. Examples: water, watr, waetr. Deduct only a small amount.',
+      '4. Grammar mistakes should have minimal penalty if the meaning is correct.',
+      '5. Different wording with the same meaning should receive high marks. Example: "The Earth revolves around the Sun." and "The Sun is orbited by the Earth." have the same meaning.',
+      '6. Partially correct answers should receive proportional credit.',
+      '7. Completely incorrect answers should receive zero.',
+      '8. If an answer contains both correct and incorrect information, reduce marks appropriately.',
+      '9. Never hallucinate information.',
+      '10. Never modify submission_id, student_id, question_id, quiz_id, or question_index.',
+      '',
+      'Output requirements:',
+      '11. Output MUST be valid CSV only.',
+      '12. Preserve every submission_id as one output row.',
+      '13. Preserve the exact output column order.',
+      '14. Do not add explanations outside the CSV.',
+      '15. Fill only the grading output columns.',
+      '16. Return the completed CSV.',
+      '',
+      'The completed CSV MUST have exactly these columns in this order:',
+      'submission_id,score,ai_reasoning',
+      '',
+      'Return exactly one row per submission_id. Calculate score as the total for all questions: retain each MCQ result, grade each FIB/SHORT_ANSWER question from 0.0 to 1.0, then round the final total to the nearest whole number. score must be a whole number from 0 to total_questions.',
+      'ai_reasoning must list only FIB/SHORT_ANSWER questions in this exact format: Q{question_index}: {earned}/1 - {brief reason}; Q{question_index}: {earned}/1 - {brief reason}. Do not mention MCQ questions. If there are no FIB/SHORT_ANSWER questions, leave ai_reasoning empty. If it contains commas, wrap the field in double quotes.',
+      'Output only the completed CSV: no markdown, code fences, headings, notes, or text before or after it.',
+      '',
       csvContent
     ].join('\n');
   }
@@ -1317,13 +1340,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function buildDetailedCsvTextForResults(list, includeAiPrompt = true) {
-    const allRows = [detailedCsvHeaders];
-    for (const result of list) {
-      const rows = await buildDetailedCsvRowsForResult(result);
-      allRows.push(...rows);
-    }
-
-    const csvContent = rowsToCsv(allRows);
+    const rowsByResult = await Promise.all(
+      list.map((result) => buildDetailedCsvRowsForResult(result))
+    );
+    const csvContent = rowsToCsv([detailedCsvHeaders, ...rowsByResult.flat()]);
     return includeAiPrompt ? buildAiGradingPrompt(csvContent) : csvContent;
   }
   // Event delegation for copy CSV buttons
@@ -1774,12 +1794,102 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // AI Grading Logic
   let aiGradesData = [];
-  function renderAiGradesReview(rows) {
+  let aiGradesPreviewSource = '';
+  async function getAiGradeReviewDetails(submissionId) {
+    const result = results.find((item) => String(item.id) === String(submissionId));
+    if (!result) return null;
+
+    const questionRows = await buildDetailedCsvRowsForResult(result);
+    if (questionRows.length === 0) return null;
+
+    const firstRow = questionRows[0];
+    return {
+      studentName: firstRow[2] || result.student_name || '',
+      quizTitle: firstRow[3] || result.quizzes?.title || '',
+      quizCode: firstRow[1] || result.quizzes?.access_code || '',
+      totalQuestions: firstRow[6] || questionRows.length,
+      questions: questionRows.map((questionRow) => ({
+        questionIndex: questionRow[8],
+        questionType: questionRow[9],
+        questionText: questionRow[10],
+        studentAnswer: questionRow[11],
+        correctKey: questionRow[12],
+        assignedMarks: questionRow[13]
+      }))
+    };
+  }
+
+  function getAiProposedMark(aiReasoning, questionIndex, questionType) {
+    if (String(questionType || '').toUpperCase() === 'MCQ') return '';
+
+    const index = Number(questionIndex);
+    if (!Number.isInteger(index) || index < 1) return '';
+
+    const entryMatch = String(aiReasoning || '').match(
+      new RegExp(`(?:FIB|SHORT_ANSWER)?\\s*Q${index}\\s*:\\s*([^;]+)`, 'i')
+    );
+    const markMatch = entryMatch?.[1]?.match(/(?:\(\s*)?([0-9.]+)\s*\/\s*([0-9.]+)(?:\s*\))?/);
+    return markMatch ? `${markMatch[1]} / ${markMatch[2]}` : '';
+  }
+
+  function renderAiGradeReviewDetails(details, score, aiReasoning) {
+    if (!details) {
+      return `
+        <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          Question details could not be loaded for this submission. The proposed AI score can still be imported.
+        </div>
+      `;
+    }
+
+    const questionsHtml = details.questions.map((question) => {
+      const hasAssignedMarks = question.assignedMarks !== '' && question.assignedMarks != null;
+      const aiProposedMark = getAiProposedMark(aiReasoning, question.questionIndex, question.questionType);
+      return `
+        <div class="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold text-slate-800">Question ${escapeHtml(String(question.questionIndex || ''))}</p>
+              <p class="mt-1 text-xs text-slate-700">${escapeHtml(question.questionText || '')}</p>
+            </div>
+            <div class="flex shrink-0 flex-col items-end gap-1">
+              <span class="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700">${escapeHtml(question.questionType || '')}</span>
+              ${aiProposedMark ? `<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">AI: ${escapeHtml(aiProposedMark)}</span>` : ''}
+            </div>
+          </div>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <div class="rounded-md bg-emerald-50 p-2">
+              <p class="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Student Answer</p>
+              <p class="mt-1 text-xs text-emerald-950">${question.studentAnswer ? escapeHtml(question.studentAnswer) : '<em class="text-emerald-700">No answer</em>'}</p>
+            </div>
+            <div class="rounded-md bg-sky-50 p-2">
+              <p class="text-[10px] font-semibold uppercase tracking-wide text-sky-800">Correct Answer</p>
+              <p class="mt-1 text-xs text-sky-950">${escapeHtml(question.correctKey || '')}</p>
+            </div>
+          </div>
+          ${hasAssignedMarks ? `<p class="text-[11px] text-slate-500">Previous mark: ${escapeHtml(String(question.assignedMarks))}</p>` : ''}
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="space-y-3">
+        <div class="space-y-2">
+          ${questionsHtml}
+        </div>
+        ${aiReasoning ? `
+          <details class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <summary class="cursor-pointer text-xs font-semibold text-slate-700">Show AI reasoning</summary>
+            <p class="mt-2 whitespace-pre-wrap break-words text-xs text-slate-700">${escapeHtml(aiReasoning)}</p>
+          </details>
+        ` : ''}
+      </div>
+    `;
+  }
+  async function renderAiGradesReview(rows) {
     aiGradesData = rows;
     let valid = true;
-    let tableHtml = '';
 
-    aiGradesData.forEach((row) => {
+    const reviewRows = await Promise.all(aiGradesData.map(async (row) => {
       const id = row['submission_id'] || row.submissionId || row['response_id'] || row.responseId || '';
       const score = row['score'] || row.Score || row['marks_assigned'] || row.marksAssigned || '';
       const aiReasoning = row['ai_reasoning'] || row.aiReasoning || '';
@@ -1788,20 +1898,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         valid = false;
       }
 
-      tableHtml += `
-        <tr>
-          <td class="px-3 py-2 font-mono text-slate-700">${escapeHtml(id)}</td>
-          <td class="px-3 py-2 font-semibold text-slate-900">${escapeHtml(String(score))}</td>
-          <td class="px-3 py-2 text-slate-600 truncate max-w-xs">${escapeHtml(aiReasoning)}</td>
-        </tr>
-      `;
-    });
+      let details = null;
+      if (id) {
+        try {
+          details = await getAiGradeReviewDetails(id);
+        } catch (err) {
+          console.warn('Could not load AI grading review details:', err);
+        }
+      }
 
-    aiGradesReviewTable.innerHTML = tableHtml;
+      return { id, score, aiReasoning, details };
+    }));
+
+    aiGradesReviewTable.innerHTML = reviewRows.map(({ id, score, aiReasoning, details }) => {
+      const studentName = details?.studentName || 'Student not found';
+      const quizTitle = details?.quizTitle || 'Quiz not found';
+      const questionCount = details?.questions?.length || 0;
+      const totalQuestions = details?.totalQuestions || questionCount || '?';
+
+      return `
+        <details class="rounded-xl border border-slate-200 bg-white">
+          <summary class="flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-xs">
+            <div class="min-w-0">
+              <p class="font-semibold text-slate-900">${escapeHtml(studentName)} <span class="font-normal text-slate-500">• ${escapeHtml(quizTitle)}</span></p>
+              <p class="mt-1 text-[11px] text-slate-500">${questionCount} question${questionCount === 1 ? '' : 's'} · ${escapeHtml(id)}</p>
+            </div>
+            <span class="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">AI: ${escapeHtml(String(score))} / ${escapeHtml(String(totalQuestions))}</span>
+          </summary>
+          <div class="border-t border-slate-100 p-3">
+            ${renderAiGradeReviewDetails(details, score, aiReasoning)}
+          </div>
+        </details>
+      `;
+    }).join('');
     aiGradesReviewContainer.classList.remove('hidden');
     return valid;
   }
-
   function parseAiGradesCsv(rawText, onComplete, onError) {
     const csvText = extractAiGradesCsvSection(rawText);
     if (!csvText) {
@@ -1824,14 +1956,17 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    aiGradesPreviewSource = '';
+
     parseAiGradesCsv(
       rawText,
-      (rows) => {
+      async (rows) => {
         if (rows.length === 0) {
           window.showToast('Paste the AI returned CSV only: submission_id,score,ai_reasoning', 'warning');
           return;
         }
-        const valid = renderAiGradesReview(rows);
+        const valid = await renderAiGradesReview(rows);
+        aiGradesPreviewSource = valid ? rawText : '';
         window.showToast(valid ? 'AI grading preview ready' : 'Some AI grading rows are missing required fields', valid ? 'success' : 'warning');
       },
       (err) => {
@@ -1849,6 +1984,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    if (aiGradesPreviewSource !== rawText) {
+      window.showToast('Click View AI Grades and review the details before importing.', 'warning');
+      return;
+    }
     btnImportAiGrades.disabled = true;
     const originalText = btnImportAiGrades.textContent;
     btnImportAiGrades.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Parsing...';
@@ -1874,7 +2013,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return;
         }
 
-        const valid = renderAiGradesReview(aiGradesData);
+        const valid = await renderAiGradesReview(aiGradesData);
         if (!valid) {
           window.showToast('Some rows are missing required fields', 'warning');
           resetAiButton(originalText);
@@ -1955,6 +2094,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       aiGradesPasteInput.value = '';
       aiGradesReviewContainer.classList.add('hidden');
       aiGradesData = [];
+      aiGradesPreviewSource = '';
 
       btnImportAiGrades.innerHTML = '<i data-lucide="upload-cloud" class="w-4 h-4"></i> Import AI Grades (CSV)';
       btnImportAiGrades.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
