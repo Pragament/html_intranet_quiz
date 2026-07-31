@@ -124,3 +124,6 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Supabase integrated auth server running on port ${PORT}`);
 });
+
+// Export the app for Vercel Serverless deployments
+module.exports = app;
