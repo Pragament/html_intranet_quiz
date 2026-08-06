@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
       showAlert('error', err.message || 'Failed to fetch configuration for this PIN.');
       continueBtn.disabled = false;
-      btnText.textContent = 'Continue';
+      btnText.textContent = 'Connect';
     }
   });
 

@@ -8,56 +8,75 @@ window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABA
 
 // Supabase Config Fetch & Management Logic
 window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3000') {
-  if (!pin || !pin.trim()) {
-    throw new Error("PIN is required");
-  }
-
+  const cleanPin = (pin || '').trim();
   const cleanHost = (serverUrl || 'http://localhost:3000').trim().replace(/\/$/, '');
   const endpoint = `${cleanHost}/api/config/get`;
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      uuid: '',
-      pin: pin.trim()
-    })
-  });
+  let result = null;
 
-  const result = await response.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 1500);
 
-  if (!response.ok || !result.success || result.error) {
-    const errorMsg = result.error || 'Failed to fetch Supabase configuration';
-    const err = new Error(errorMsg);
-    err.requiresPin = !!result.requiresPin;
-    throw err;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uuid: '',
+        pin: cleanPin
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.success && data.config) {
+        result = data;
+      }
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.warn("Nameserver fetch failed or timed out, falling back to default config:", err);
   }
 
-  const url = result.config?.url || result.config?.projectUrl;
-  const anonKey = result.config?.anonKey || result.config?.apiKey;
-
-  if (!result.config || !url || !anonKey) {
-    throw new Error('Invalid configuration structure received from server.');
+  // Fallback to default Supabase config if server did not return valid config
+  if (!result || !result.config) {
+    const defaultUrl = window.DEFAULT_SUPABASE_URL || "https://zkbmelptvfcbyktfesro.supabase.co";
+    const defaultKey = window.DEFAULT_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYm1lbHB0dmZjYnlrdGZlc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0Nzc0ODIsImV4cCI6MjEwMTA1MzQ4Mn0.4r-FWggFnNC7Ouxs4gr_tpnsI783_o7y-bAcvEr20Z0";
+    result = {
+      success: true,
+      name: 'Default Quiz Platform',
+      config: {
+        url: defaultUrl,
+        anonKey: defaultKey
+      }
+    };
   }
 
-  const configName = result.name || `Config (PIN ${pin.trim()})`;
+  const url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url || window.DEFAULT_SUPABASE_URL;
+  const anonKey = result.config?.anonKey || result.config?.apiKey || result.config?.supabaseAnonKey || result.config?.anon_key || window.DEFAULT_SUPABASE_ANON_KEY;
+
+  const configName = result.name || `Config (PIN ${cleanPin})`;
 
   // Persist to localStorage
   localStorage.setItem('SUPABASE_URL', url);
   localStorage.setItem('SUPABASE_ANON_KEY', anonKey);
   localStorage.setItem('SUPABASE_CONFIG_NAME', configName);
-  localStorage.setItem('SUPABASE_CONFIG_PIN', pin.trim());
+  localStorage.setItem('SUPABASE_CONFIG_PIN', cleanPin || 'default');
 
   // Update in-memory window variables & re-initialize client
   window.SUPABASE_URL = url;
   window.SUPABASE_ANON_KEY = anonKey;
-  window.supabaseClient = supabase.createClient(url, anonKey);
+  if (window.supabase && typeof window.supabase.createClient === 'function') {
+    window.supabaseClient = window.supabase.createClient(url, anonKey);
+  }
 
   return {
     url,
     anonKey,
     name: configName,
-    pin: pin.trim()
+    pin: cleanPin || 'default'
   };
 };
 
