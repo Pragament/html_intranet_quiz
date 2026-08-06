@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Intranet Quiz PIN Setup - Quiz Platform</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="min-h-screen bg-slate-50 flex flex-col font-['Inter',sans-serif]">
+
+  <!-- Top Blue Header -->
+  <header class="bg-blue-600 text-white px-6 py-3.5 flex justify-between items-center shadow-md">
+    <div class="flex items-center gap-2">
+      <span class="text-amber-300 text-lg font-black">⚡</span>
+      <span class="font-bold text-base tracking-tight">Quiz Platform</span>
+      <span class="text-[10px] bg-blue-700 text-blue-100 px-2 py-0.5 rounded font-mono font-medium">v1.0</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="reset-config-top-btn" title="Reset to default config" class="p-2 rounded-lg hover:bg-blue-700 text-blue-100 hover:text-white transition cursor-pointer flex items-center gap-1.5 text-xs font-semibold">
+        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+        <span class="hidden sm:inline">Reset</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content Card Area -->
+  <main class="flex-1 flex items-center justify-center p-4">
+    <div class="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center space-y-6 my-auto">
+      
+      <!-- Top Illustration Emoji -->
+      <div class="flex justify-center">
+        <span class="text-4xl p-3.5 bg-amber-50 rounded-2xl inline-block shadow-sm">🏃</span>
+      </div>
+
+      <!-- Welcome Headings -->
+      <div>
+        <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">Welcome to Quiz Platform</h1>
+        <p class="mt-1.5 text-sm text-slate-500 font-medium">Enter your Intranet Quiz PIN to begin</p>
+      </div>
+
+      <!-- Alert Message Box -->
+      <div id="alert-box" class="hidden p-3.5 rounded-xl text-xs font-medium text-left"></div>
+
+      <!-- PIN Input Form -->
+      <form id="pin-form" class="space-y-4" autocomplete="off">
+        <div>
+          <input
+            id="intranet-pin-input"
+            type="text"
+            required
+            placeholder="Intranet Quiz PIN (e.g. 123456)"
+            class="w-full px-4 py-3 border border-slate-200 rounded-xl text-center font-bold text-slate-800 text-base placeholder-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition tracking-widest font-mono"
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="continue-btn"
+          class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-sm rounded-xl transition shadow-sm cursor-pointer flex items-center justify-center gap-2"
+        >
+          <span id="btn-text">Continue</span>
+        </button>
+      </form>
+
+      <!-- Footer Helper Text -->
+      <p class="text-xs text-slate-400 pt-2 border-t border-slate-100">
+        Contact your administrator if you don't know your PIN.
+      </p>
+
+      <!-- Optional Default Config Link -->
+      <div>
+        <a id="skip-link" href="index.html" class="text-xs font-medium text-blue-600 hover:text-blue-700 transition">
+          Skip to Student Lobby &rarr;
+        </a>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- CDNs for JS -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/config-page.js"></script>
+</body>
+</html>
