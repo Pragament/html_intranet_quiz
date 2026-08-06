@@ -127,27 +127,34 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
 
             <!-- Action Buttons -->
-            <div class="flex gap-2 mb-4">
+            <div class="grid grid-cols-2 gap-2 mt-auto pt-4 border-t border-slate-100">
+              <button
+                onclick="window.viewSettings('${quiz.id}')"
+                class="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-all cursor-pointer"
+              >
+                <i data-lucide="settings" class="w-3 h-3"></i>
+                Settings
+              </button>
               <button
                 onclick="window.location.href = 'create.html?edit=${quiz.id}'"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-xs font-semibold text-slate-600 hover:text-blue-700 transition-all cursor-pointer"
+                class="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-xs font-semibold text-slate-600 hover:text-blue-700 transition-all cursor-pointer"
               >
                 <i data-lucide="edit" class="w-3 h-3"></i>
                 Edit
               </button>
               <button
-                onclick="window.deleteQuiz('${quiz.id}')"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold text-slate-600 hover:text-rose-700 transition-all cursor-pointer"
-              >
-                <i data-lucide="trash-2" class="w-3 h-3"></i>
-                Delete
-              </button>
-              <button
                 onclick="window.openAnalytics('${quiz.id}', '${escapeHtml(quiz.title)}')"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-all cursor-pointer"
+                class="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-xs font-semibold text-slate-600 hover:text-emerald-700 transition-all cursor-pointer"
               >
                 <i data-lucide="bar-chart-3" class="w-3 h-3"></i>
                 Analytics
+              </button>
+              <button
+                onclick="window.deleteQuiz('${quiz.id}')"
+                class="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-xs font-semibold text-slate-600 hover:text-rose-700 transition-all cursor-pointer"
+              >
+                <i data-lucide="trash-2" class="w-3 h-3"></i>
+                Delete
               </button>
             </div>
           </div>
@@ -351,6 +358,69 @@ document.addEventListener('DOMContentLoaded', async () => {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
   }
+
+  // --- View Quiz Settings Modal ---
+  const settingsModal = document.getElementById('settings-modal');
+  const closeSettingsModal = document.getElementById('close-settings-modal');
+  const settingsContent = document.getElementById('settings-content');
+
+  if (closeSettingsModal) {
+    closeSettingsModal.addEventListener('click', () => {
+      settingsModal.classList.add('hidden');
+    });
+  }
+
+  window.viewSettings = function(quizId) {
+    const quiz = quizzes.find((q) => q.id === quizId);
+    if (!quiz) return;
+
+    let html = `
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-2">
+        <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Quiz Title</label>
+        <div class="text-sm font-semibold text-slate-900">${escapeHtml(quiz.title)}</div>
+      </div>
+
+      <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-2 flex justify-between items-center">
+        <div>
+          <label class="block text-xs font-bold text-blue-500 uppercase tracking-wider mb-1">Access Code</label>
+          <div class="text-lg font-mono font-bold text-blue-900 tracking-wider">${quiz.access_code}</div>
+        </div>
+        <button 
+          onclick="window.copyAccessCode('${quiz.access_code}', 'modal-copy-btn')" 
+          id="modal-copy-btn"
+          class="p-2 hover:bg-blue-100 text-blue-600 rounded-lg transition"
+          title="Copy Code"
+        >
+          <i data-lucide="copy" class="w-5 h-5"></i>
+        </button>
+      </div>
+    `;
+
+    if (quiz.offline_mode) {
+      html += `
+        <div class="grid grid-cols-2 gap-3 mt-4">
+          <div class="bg-amber-50 border border-amber-100 rounded-xl p-4 text-center">
+            <label class="block text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">Start OTP</label>
+            <div class="text-2xl font-mono font-bold text-amber-900 tracking-widest">${quiz.start_otp || 'N/A'}</div>
+          </div>
+          <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-center">
+            <label class="block text-xs font-bold text-emerald-600 uppercase tracking-wider mb-1">Submit OTP</label>
+            <div class="text-2xl font-mono font-bold text-emerald-900 tracking-widest">${quiz.submit_otp || 'N/A'}</div>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="mt-4 p-4 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50">
+          <p class="text-sm text-slate-500">Offline mode is disabled. No OTPs required.</p>
+        </div>
+      `;
+    }
+
+    settingsContent.innerHTML = html;
+    settingsModal.classList.remove('hidden');
+    if (window.lucide) window.lucide.createIcons();
+  };
 
   // Run initialization
   fetchQuizzes();

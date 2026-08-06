@@ -124,6 +124,45 @@
     </div>
   </main>
 
+  <!-- Offline Mode Overlays -->
+  <!-- 1. Start OTP Overlay -->
+  <div id="start-otp-overlay" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex justify-center items-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center animate-slide-up">
+      <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i data-lucide="lock" class="w-6 h-6"></i>
+      </div>
+      <h3 class="text-lg font-bold text-slate-900 mb-2">Offline Mode Enabled</h3>
+      <p class="text-sm text-slate-600 mb-6">Your teacher will provide a Start OTP. Please disconnect from Wi-Fi, then enter the OTP to begin the quiz.</p>
+      
+      <input type="text" id="start-otp-input" placeholder="Enter Start OTP" class="w-full text-center tracking-widest font-mono text-xl py-3 border border-slate-300 rounded-xl mb-4 focus:ring-2 focus:ring-blue-500 outline-none" />
+      
+      <button id="verify-start-otp-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition cursor-pointer">
+        Verify & Start
+      </button>
+    </div>
+  </div>
+
+  <!-- 2. Submit OTP Overlay -->
+  <div id="submit-otp-overlay" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex justify-center items-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center animate-slide-up">
+      <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i data-lucide="shield-check" class="w-6 h-6"></i>
+      </div>
+      <h3 class="text-lg font-bold text-slate-900 mb-2">Quiz Finished</h3>
+      <p class="text-sm text-slate-600 mb-6">Please ask your teacher to turn on Wi-Fi and provide the Submit OTP to upload your results.</p>
+      
+      <input type="text" id="submit-otp-input" placeholder="Enter Submit OTP" class="w-full text-center tracking-widest font-mono text-xl py-3 border border-slate-300 rounded-xl mb-4 focus:ring-2 focus:ring-emerald-500 outline-none" />
+      
+      <button id="verify-submit-otp-btn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 rounded-xl transition cursor-pointer mb-3">
+        Verify & Upload
+      </button>
+
+      <button id="retry-upload-btn" class="hidden w-full bg-rose-100 hover:bg-rose-200 text-rose-700 font-semibold py-3 rounded-xl transition cursor-pointer flex items-center justify-center gap-2">
+        <i data-lucide="refresh-cw" class="w-4 h-4"></i> Retry Upload
+      </button>
+    </div>
+  </div>
+
   <!-- CDNs for JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://unpkg.com/lucide@latest"></script>

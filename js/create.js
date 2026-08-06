@@ -17,12 +17,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   const quizDurationInput = document.getElementById('quiz-duration');
   const quizCodeInput = document.getElementById('quiz-code');
   const quizRandomizeInput = document.getElementById('quiz-randomize');
+  const quizOfflineModeInput = document.getElementById('quiz-offline-mode');
+  const otpContainer = document.getElementById('otp-container');
+  const displayStartOtp = document.getElementById('display-start-otp');
+  const displaySubmitOtp = document.getElementById('display-submit-otp');
   const generateCodeBtn = document.getElementById('generate-code-btn');
   const selectedCountBadge = document.getElementById('selected-count-badge');
   const submitQuizBtn = document.getElementById('submit-quiz-btn');
   const tagSelector = document.getElementById('tag-selector');
   const questionsContainer = document.getElementById('questions-container');
   const createForm = document.getElementById('create-quiz-form');
+
+  let currentStartOtp = '';
+  let currentSubmitOtp = '';
+
+  function generateOtp() {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
+  quizOfflineModeInput.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      otpContainer.classList.remove('hidden');
+      if (!currentStartOtp) currentStartOtp = generateOtp();
+      if (!currentSubmitOtp) currentSubmitOtp = generateOtp();
+      displayStartOtp.textContent = currentStartOtp;
+      displaySubmitOtp.textContent = currentSubmitOtp;
+    } else {
+      otpContainer.classList.add('hidden');
+    }
+  });
 
   // Generate a random 8-character access code starting with QUIZ
   function generateCode() {
@@ -58,6 +81,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       quizDurationInput.value = quizData.duration_minutes;
       quizCodeInput.value = quizData.access_code;
       quizRandomizeInput.checked = quizData.is_random;
+
+      if (quizData.offline_mode) {
+        quizOfflineModeInput.checked = true;
+        currentStartOtp = quizData.start_otp || generateOtp();
+        currentSubmitOtp = quizData.submit_otp || generateOtp();
+        displayStartOtp.textContent = currentStartOtp;
+        displaySubmitOtp.textContent = currentSubmitOtp;
+        otpContainer.classList.remove('hidden');
+      }
       
       // Update button text
       submitQuizBtn.textContent = 'Update Quiz';
@@ -283,6 +315,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const duration = parseInt(quizDurationInput.value) || 15;
     const accessCode = quizCodeInput.value.trim().toUpperCase();
     const isRandom = quizRandomizeInput.checked;
+    const isOffline = quizOfflineModeInput.checked;
+    const finalStartOtp = isOffline ? currentStartOtp : null;
+    const finalSubmitOtp = isOffline ? currentSubmitOtp : null;
 
     if (!title) {
       window.showToast('Please enter a quiz title.', 'error');
@@ -342,6 +377,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             duration_minutes: duration,
             is_random: isRandom,
             access_code: accessCode,
+            offline_mode: isOffline,
+            start_otp: finalStartOtp,
+            submit_otp: finalSubmitOtp,
           })
           .eq('id', editQuizId);
 
@@ -380,6 +418,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             duration_minutes: duration,
             is_random: isRandom,
             access_code: accessCode,
+            offline_mode: isOffline,
+            start_otp: finalStartOtp,
+            submit_otp: finalSubmitOtp,
           })
           .select()
           .single();

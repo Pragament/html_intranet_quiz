@@ -116,6 +116,23 @@
       </div>
     </div>
   </div>
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 hidden backdrop-blur-sm">
+    <div class="bg-white rounded-2xl p-6 w-full max-w-sm mx-4 animate-slide-up shadow-xl">
+      <div class="flex justify-between items-center mb-6">
+        <h3 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <i data-lucide="settings" class="w-5 h-5 text-slate-500"></i>
+          Quiz Settings
+        </h3>
+        <button id="close-settings-modal" class="text-slate-400 hover:text-slate-600 transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div id="settings-content" class="space-y-4">
+        <!-- Dynamic content will be injected here -->
+      </div>
+    </div>
+  </div>
 
   <!-- CDNs for JS -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

@@ -48,6 +48,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const nextBtnText = document.getElementById('next-btn-text');
   const nextBtnIcon = document.getElementById('next-btn-icon');
 
+  const startOtpOverlay = document.getElementById('start-otp-overlay');
+  const startOtpInput = document.getElementById('start-otp-input');
+  const verifyStartOtpBtn = document.getElementById('verify-start-otp-btn');
+
+  const submitOtpOverlay = document.getElementById('submit-otp-overlay');
+  const submitOtpInput = document.getElementById('submit-otp-input');
+  const verifySubmitOtpBtn = document.getElementById('verify-submit-otp-btn');
+  const retryUploadBtn = document.getElementById('retry-upload-btn');
+
   // Seeded deterministic random number generator + Fisher-Yates shuffle
   function shuffleQuestions(list, seed) {
     const arr = [...list];
@@ -128,20 +137,55 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       questions = items;
 
-      // Hide loading spinner, show quiz layout
+      // Hide loading spinner
       loaderArea.classList.add('hidden');
-      quizArea.classList.remove('hidden');
 
-      // Start timer countdown
-      startTimer();
-
-      // Render first question
-      renderCurrentQuestion();
+      if (quiz.offline_mode) {
+        startOtpOverlay.classList.remove('hidden');
+      } else {
+        quizArea.classList.remove('hidden');
+        startTimer();
+        renderCurrentQuestion();
+      }
     } catch (err) {
       console.error('Error loading quiz:', err);
       window.showToast('Failed to load quiz details', 'error');
       window.location.href = 'index.html';
     }
+  }
+
+  if (verifyStartOtpBtn) {
+    verifyStartOtpBtn.addEventListener('click', () => {
+      if (startOtpInput.value.trim() === quiz.start_otp) {
+        startOtpOverlay.classList.add('hidden');
+        quizArea.classList.remove('hidden');
+        startTimer();
+        renderCurrentQuestion();
+      } else {
+        window.showToast('Invalid Start OTP.', 'error');
+      }
+    });
+  }
+
+  if (verifySubmitOtpBtn) {
+    verifySubmitOtpBtn.addEventListener('click', async () => {
+      if (submitOtpInput.value.trim() === quiz.submit_otp) {
+        verifySubmitOtpBtn.disabled = true;
+        verifySubmitOtpBtn.textContent = 'Uploading...';
+        await performUpload();
+      } else {
+        window.showToast('Invalid Submit OTP.', 'error');
+      }
+    });
+  }
+
+  if (retryUploadBtn) {
+    retryUploadBtn.addEventListener('click', async () => {
+      retryUploadBtn.disabled = true;
+      retryUploadBtn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4 animate-spin"></i> Retrying...';
+      if (window.lucide) window.lucide.createIcons();
+      await performUpload();
+    });
   }
 
   // Countdown timer clock
@@ -439,18 +483,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (timerInterval) clearInterval(timerInterval);
 
+    nextBtnText.textContent = 'Submitting...';
+    nextBtn.disabled = true;
+
+    // 1. Calculate score and preserve every answer for teacher review.
+    const responseSnapshot = buildResponseSnapshot();
+    const finalScore = questions.reduce((score, q) => {
+      return score + (isAnswerCorrect(q, answers[q.id]) ? 1 : 0);
+    }, 0);
+    
+    // Save locally immediately so it's safe if offline
+    saveLocalResponseSnapshot(null, responseSnapshot);
+
+    // Cache for upload function
+    window.__finalScore = finalScore;
+    window.__responseSnapshot = responseSnapshot;
+
+    if (quiz.offline_mode) {
+      quizArea.classList.add('hidden');
+      submitOtpOverlay.classList.remove('hidden');
+    } else {
+      await performUpload();
+    }
+  }
+
+  async function performUpload() {
     try {
-      nextBtnText.textContent = 'Submitting...';
-      nextBtn.disabled = true;
+      const finalScore = window.__finalScore;
+      const responseSnapshot = window.__responseSnapshot;
 
-      // 1. Calculate score and preserve every answer for teacher review.
-      const responseSnapshot = buildResponseSnapshot();
-      const finalScore = questions.reduce((score, q) => {
-        return score + (isAnswerCorrect(q, answers[q.id]) ? 1 : 0);
-      }, 0);
-
-      // 2. Insert the result row. Newer schemas store response_snapshot here;
-      // older schemas still save the score and use student_responses if available.
+      // 2. Insert the result row.
       const resultRow = await insertStudentResult({
         quiz_id: quiz.id,
         student_name: studentName,
@@ -463,7 +525,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 3. Keep the row-per-answer table in sync for grading workflows.
       const responsesSaved = await insertStudentResponses(resultRow?.id, responseSnapshot);
       if (!resultRow?._savedWithSnapshot && !responsesSaved) {
-        throw new Error('Your score was saved, but the database did not save your answers. Please ask the teacher to run the student answer storage migration.');
+        throw new Error('Your score was saved, but the database did not save your answers.');
       }
       window.showToast('Quiz completed and submitted successfully!', 'success');
 
@@ -479,9 +541,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) {
       console.error('Error submitting quiz results:', err);
       window.showToast(err.message || 'Failed to submit quiz results', 'error');
-      submitting = false;
-      nextBtn.disabled = false;
-      renderCurrentQuestion();
+      
+      if (quiz.offline_mode) {
+        verifySubmitOtpBtn.textContent = 'Verify & Upload';
+        verifySubmitOtpBtn.disabled = false;
+        retryUploadBtn.classList.remove('hidden');
+        retryUploadBtn.disabled = false;
+        retryUploadBtn.innerHTML = '<i data-lucide="refresh-cw" class="w-4 h-4"></i> Retry Upload';
+        if (window.lucide) window.lucide.createIcons();
+      } else {
+        submitting = false;
+        nextBtn.disabled = false;
+        nextBtnText.textContent = 'Submit Quiz';
+        renderCurrentQuestion();
+      }
     }
   }
 
