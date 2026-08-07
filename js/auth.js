@@ -1,21 +1,23 @@
 // js/auth.js
 // Initialize Supabase Client
-if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
-  console.error("Supabase config (config.js) is missing or not loaded!");
+if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY && window.supabase && typeof window.supabase.createClient === 'function') {
+  window.supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 }
-
-window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 // Supabase Config Fetch & Management Logic
 window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3000') {
   const cleanPin = (pin || '').trim();
+  if (!cleanPin) {
+    throw new Error("PIN is required");
+  }
+
   const cleanHost = (serverUrl || 'http://localhost:3000').trim().replace(/\/$/, '');
   const endpoint = `${cleanHost}/api/config/get`;
 
   let result = null;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500);
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
 
   try {
     const response = await fetch(endpoint, {
@@ -33,29 +35,31 @@ window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3
       const data = await response.json();
       if (data && data.success && data.config) {
         result = data;
+      } else if (data && data.error) {
+        throw new Error(data.error);
       }
+    } else {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.error || `Server error (${response.status})`);
     }
   } catch (err) {
     clearTimeout(timeoutId);
-    console.warn("Nameserver fetch failed or timed out, falling back to default config:", err);
+    if (err.name === 'AbortError') {
+      throw new Error('Connection timed out while fetching configuration.');
+    }
+    throw err;
   }
 
-  // Fallback to default Supabase config if server did not return valid config
   if (!result || !result.config) {
-    const defaultUrl = window.DEFAULT_SUPABASE_URL || "https://zkbmelptvfcbyktfesro.supabase.co";
-    const defaultKey = window.DEFAULT_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYm1lbHB0dmZjYnlrdGZlc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0Nzc0ODIsImV4cCI6MjEwMTA1MzQ4Mn0.4r-FWggFnNC7Ouxs4gr_tpnsI783_o7y-bAcvEr20Z0";
-    result = {
-      success: true,
-      name: 'Default Quiz Platform',
-      config: {
-        url: defaultUrl,
-        anonKey: defaultKey
-      }
-    };
+    throw new Error('Invalid configuration structure received from server.');
   }
 
   const url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url || window.DEFAULT_SUPABASE_URL;
   const anonKey = result.config?.anonKey || result.config?.apiKey || result.config?.supabaseAnonKey || result.config?.anon_key || window.DEFAULT_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error('No valid Supabase URL or Anon Key found in configuration for this PIN.');
+  }
 
   const configName = result.name || `Config (PIN ${cleanPin})`;
 
@@ -63,7 +67,7 @@ window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3
   localStorage.setItem('SUPABASE_URL', url);
   localStorage.setItem('SUPABASE_ANON_KEY', anonKey);
   localStorage.setItem('SUPABASE_CONFIG_NAME', configName);
-  localStorage.setItem('SUPABASE_CONFIG_PIN', cleanPin || 'default');
+  localStorage.setItem('SUPABASE_CONFIG_PIN', cleanPin);
 
   // Update in-memory window variables & re-initialize client
   window.SUPABASE_URL = url;
@@ -76,7 +80,7 @@ window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3
     url,
     anonKey,
     name: configName,
-    pin: cleanPin || 'default'
+    pin: cleanPin
   };
 };
 
@@ -87,9 +91,11 @@ window.resetSupabaseConfig = function() {
   localStorage.removeItem('SUPABASE_CONFIG_PIN');
   localStorage.removeItem('SUPABASE_CONFIG_UUID');
 
-  window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL || "https://zkbmelptvfcbyktfesro.supabase.co";
-  window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYm1lbHB0dmZjYnlrdGZlc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0Nzc0ODIsImV4cCI6MjEwMTA1MzQ4Mn0.4r-FWggFnNC7Ouxs4gr_tpnsI783_o7y-bAcvEr20Z0";
-  window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL || "";
+  window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY || "";
+  if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY && window.supabase && typeof window.supabase.createClient === 'function') {
+    window.supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  }
 };
 
 // Modal Handler
