@@ -11,9 +11,11 @@ window.addEventListener('DOMContentLoaded', () => {
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Check if user is already logged in (redirects to dashboard if so)
-  await window.checkAuth();
+  const user = await window.checkAuth();
+  window.renderHeader(user);
 
   let isSignUp = false;
+
 
   const authTitle = document.getElementById('auth-title');
   const toggleAuthModeBtn = document.getElementById('toggle-auth-mode');
