@@ -34,8 +34,16 @@ create table public.quizzes (
     duration_minutes integer not null,
     is_random boolean default false not null,
     access_code varchar(10) unique not null,
+    offline_mode boolean default false,
+    start_otp text,
+    submit_otp text,
     created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
+
+-- Migration helpers for existing databases
+alter table public.quizzes add column if not exists offline_mode boolean default false;
+alter table public.quizzes add column if not exists start_otp text;
+alter table public.quizzes add column if not exists submit_otp text;
 
 -- 4. Quiz Questions Junction Table (Links Question Bank to Active Quizzes)
 create table public.quiz_questions (

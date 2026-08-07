@@ -368,20 +368,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (editQuizId) {
         // Update existing quiz
-        const { error: quizUpdateError } = await window.supabaseClient
+        const updatePayload = {
+          title,
+          rounds,
+          question_count: selectedQuestionIds.length,
+          duration_minutes: duration,
+          is_random: isRandom,
+          access_code: accessCode,
+          offline_mode: isOffline,
+          start_otp: finalStartOtp,
+          submit_otp: finalSubmitOtp,
+        };
+
+        let { error: quizUpdateError } = await window.supabaseClient
           .from('quizzes')
-          .update({
-            title,
-            rounds,
-            question_count: selectedQuestionIds.length,
-            duration_minutes: duration,
-            is_random: isRandom,
-            access_code: accessCode,
-            offline_mode: isOffline,
-            start_otp: finalStartOtp,
-            submit_otp: finalSubmitOtp,
-          })
+          .update(updatePayload)
           .eq('id', editQuizId);
+
+        if (quizUpdateError && (quizUpdateError.message?.includes('schema cache') || quizUpdateError.message?.includes('column') || quizUpdateError.code === 'PGRST204')) {
+          const { offline_mode, start_otp, submit_otp, ...basicUpdatePayload } = updatePayload;
+          const { error: retryError } = await window.supabaseClient
+            .from('quizzes')
+            .update(basicUpdatePayload)
+            .eq('id', editQuizId);
+          quizUpdateError = retryError;
+        }
 
         if (quizUpdateError) throw quizUpdateError;
 
@@ -408,22 +419,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.showToast('Quiz updated successfully!', 'success');
       } else {
         // Insert new quiz
-        const { data: newQuiz, error: quizError } = await window.supabaseClient
+        const insertPayload = {
+          teacher_id: user.id,
+          title,
+          rounds,
+          question_count: selectedQuestionIds.length,
+          duration_minutes: duration,
+          is_random: isRandom,
+          access_code: accessCode,
+          offline_mode: isOffline,
+          start_otp: finalStartOtp,
+          submit_otp: finalSubmitOtp,
+        };
+
+        let { data: newQuiz, error: quizError } = await window.supabaseClient
           .from('quizzes')
-          .insert({
-            teacher_id: user.id,
-            title,
-            rounds,
-            question_count: selectedQuestionIds.length,
-            duration_minutes: duration,
-            is_random: isRandom,
-            access_code: accessCode,
-            offline_mode: isOffline,
-            start_otp: finalStartOtp,
-            submit_otp: finalSubmitOtp,
-          })
+          .insert(insertPayload)
           .select()
           .single();
+
+        if (quizError && (quizError.message?.includes('schema cache') || quizError.message?.includes('column') || quizError.code === 'PGRST204')) {
+          const { offline_mode, start_otp, submit_otp, ...basicInsertPayload } = insertPayload;
+          const { data: retryQuiz, error: retryError } = await window.supabaseClient
+            .from('quizzes')
+            .insert(basicInsertPayload)
+            .select()
+            .single();
+          newQuiz = retryQuiz;
+          quizError = retryError;
+        }
 
         if (quizError) throw quizError;
 
