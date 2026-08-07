@@ -123,6 +123,17 @@ Rules:
 
   // Fetch Questions
   async function fetchQuestions() {
+    if (!window.supabaseClient) {
+      questionsList.innerHTML = `
+        <div class="py-12 text-center text-slate-500 text-sm">
+          <p class="font-semibold text-slate-700 mb-1">Configuration Required</p>
+          <p class="text-xs text-slate-400 mb-4">Please set up your Intranet Quiz PIN to access questions.</p>
+          <a href="config.html" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold transition inline-block">Setup Config PIN</a>
+        </div>
+      `;
+      return;
+    }
+
     try {
       questionsList.innerHTML = `
         <div class="py-16 flex justify-center items-center">
@@ -144,6 +155,13 @@ Rules:
     } catch (err) {
       console.error('Error fetching questions:', err);
       window.showToast(err.message || 'Failed to load question bank', 'error');
+      questionsList.innerHTML = `
+        <div class="py-12 text-center text-slate-500 text-sm">
+          <p class="font-medium text-slate-700 mb-1">Failed to load question bank</p>
+          <p class="text-xs text-slate-400 mb-4">${err.message || 'Please check your connection or database setup.'}</p>
+          <button onclick="location.reload()" class="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer">Retry</button>
+        </div>
+      `;
     }
   }
 

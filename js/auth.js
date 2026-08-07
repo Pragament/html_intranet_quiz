@@ -1,24 +1,30 @@
 // js/auth.js
 // Initialize Supabase Client
 if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
-  console.error("Supabase config (config.js) is missing or not loaded!");
+  console.warn("Supabase config (config.js) is missing or not loaded!");
+  window.supabaseClient = null;
+} else if (window.supabase && typeof window.supabase.createClient === 'function') {
+  window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 }
-
-window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 // Supabase Config Fetch & Management Logic
 window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3000') {
-  const cleanPin = (pin || '').trim();
+  if (!pin || !pin.trim()) {
+    throw new Error("PIN is required");
+  }
+
+  const cleanPin = pin.trim();
   const cleanHost = (serverUrl || 'http://localhost:3000').trim().replace(/\/$/, '');
   const endpoint = `${cleanHost}/api/config/get`;
 
-  let result = null;
-
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500);
+  const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+  let response;
+  let result;
 
   try {
-    const response = await fetch(endpoint, {
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -29,33 +35,28 @@ window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3
     });
 
     clearTimeout(timeoutId);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.success && data.config) {
-        result = data;
-      }
-    }
+    result = await response.json();
   } catch (err) {
     clearTimeout(timeoutId);
-    console.warn("Nameserver fetch failed or timed out, falling back to default config:", err);
+    if (err.name === 'AbortError') {
+      throw new Error('Connection timed out while fetching configuration from server.');
+    }
+    throw new Error('Failed to connect to configuration server. Please check your network.');
   }
 
-  // Fallback to default Supabase config if server did not return valid config
-  if (!result || !result.config) {
-    const defaultUrl = window.DEFAULT_SUPABASE_URL || "https://zkbmelptvfcbyktfesro.supabase.co";
-    const defaultKey = window.DEFAULT_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYm1lbHB0dmZjYnlrdGZlc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0Nzc0ODIsImV4cCI6MjEwMTA1MzQ4Mn0.4r-FWggFnNC7Ouxs4gr_tpnsI783_o7y-bAcvEr20Z0";
-    result = {
-      success: true,
-      name: 'Default Quiz Platform',
-      config: {
-        url: defaultUrl,
-        anonKey: defaultKey
-      }
-    };
+  if (!response.ok || !result.success || result.error) {
+    const errorMsg = result.error || 'Failed to fetch Supabase configuration';
+    const err = new Error(errorMsg);
+    err.requiresPin = !!result.requiresPin;
+    throw err;
   }
 
-  const url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url || window.DEFAULT_SUPABASE_URL;
-  const anonKey = result.config?.anonKey || result.config?.apiKey || result.config?.supabaseAnonKey || result.config?.anon_key || window.DEFAULT_SUPABASE_ANON_KEY;
+  const url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url;
+  const anonKey = result.config?.anonKey || result.config?.apiKey || result.config?.supabaseAnonKey || result.config?.anon_key;
+
+  if (!result.config || !url || !anonKey) {
+    throw new Error('Invalid configuration structure received from server.');
+  }
 
   const configName = result.name || `Config (PIN ${cleanPin})`;
 
@@ -63,20 +64,20 @@ window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3
   localStorage.setItem('SUPABASE_URL', url);
   localStorage.setItem('SUPABASE_ANON_KEY', anonKey);
   localStorage.setItem('SUPABASE_CONFIG_NAME', configName);
-  localStorage.setItem('SUPABASE_CONFIG_PIN', cleanPin || 'default');
+  localStorage.setItem('SUPABASE_CONFIG_PIN', cleanPin);
 
   // Update in-memory window variables & re-initialize client
   window.SUPABASE_URL = url;
   window.SUPABASE_ANON_KEY = anonKey;
   if (window.supabase && typeof window.supabase.createClient === 'function') {
-    window.supabaseClient = window.supabase.createClient(url, anonKey);
+    window.supabaseClient = supabase.createClient(url, anonKey);
   }
 
   return {
     url,
     anonKey,
     name: configName,
-    pin: cleanPin || 'default'
+    pin: cleanPin
   };
 };
 
@@ -87,9 +88,13 @@ window.resetSupabaseConfig = function() {
   localStorage.removeItem('SUPABASE_CONFIG_PIN');
   localStorage.removeItem('SUPABASE_CONFIG_UUID');
 
-  window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL || "https://zkbmelptvfcbyktfesro.supabase.co";
-  window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprYm1lbHB0dmZjYnlrdGZlc3JvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0Nzc0ODIsImV4cCI6MjEwMTA1MzQ4Mn0.4r-FWggFnNC7Ouxs4gr_tpnsI783_o7y-bAcvEr20Z0";
-  window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL || "";
+  window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY || "";
+  if (window.supabase && typeof window.supabase.createClient === 'function' && window.SUPABASE_URL && window.SUPABASE_ANON_KEY) {
+    window.supabaseClient = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  } else {
+    window.supabaseClient = null;
+  }
 };
 
 // Modal Handler
@@ -277,44 +282,68 @@ window.showToast = function(message, type = 'info') {
 
 // Check Auth State on DOMContentLoaded
 window.checkAuth = async function(requiredRole = 'teacher') {
-  const { data: { session } } = await window.supabaseClient.auth.getSession();
-  const user = session ? session.user : null;
-  window.currentUser = user;
-  const path = window.location.pathname;
-  const isLoginPage = path.includes('login.html');
-  const isTeacherPage = path.includes('dashboard.html') || 
-                        path.includes('questions.html') || 
-                        path.includes('create.html') || 
-                        path.includes('reports.html');
-
-  if (isTeacherPage) {
-    if (!user) {
-      window.location.href = 'login.html';
-      return null;
+  if (!window.supabaseClient) {
+    console.warn('Supabase client is not initialized. Redirecting to config PIN setup...');
+    const path = window.location.pathname;
+    if (!path.includes('config.html')) {
+      window.location.href = 'config.html';
     }
-
-    try {
-      await window.ensureTeacherProfile(user);
-    } catch (err) {
-      console.error('Failed to ensure teacher profile:', err);
-      window.showToast('Could not prepare your teacher account. Please sign in again.', 'error');
-      return null;
-    }
+    return null;
   }
 
-  if (isLoginPage) {
-    if (user) {
+  try {
+    const { data, error } = await window.supabaseClient.auth.getSession();
+    if (error) {
+      console.error('Session retrieval error:', error);
+      const path = window.location.pathname;
+      if (!path.includes('login.html') && !path.includes('config.html') && !path.includes('index.html') && !path.includes('quiz.html') && !path.includes('result.html')) {
+        window.location.href = 'login.html';
+      }
+      return null;
+    }
+
+    const session = data ? data.session : null;
+    const user = session ? session.user : null;
+    window.currentUser = user;
+    const path = window.location.pathname;
+    const isLoginPage = path.includes('login.html');
+    const isTeacherPage = path.includes('dashboard.html') || 
+                          path.includes('questions.html') || 
+                          path.includes('create.html') || 
+                          path.includes('reports.html');
+
+    if (isTeacherPage) {
+      if (!user) {
+        window.location.href = 'login.html';
+        return null;
+      }
+
       try {
         await window.ensureTeacherProfile(user);
       } catch (err) {
         console.error('Failed to ensure teacher profile:', err);
+        window.showToast('Could not prepare your teacher account. Please sign in again.', 'error');
+        return null;
       }
-      window.location.href = 'dashboard.html';
-      return null;
     }
-  }
 
-  return user;
+    if (isLoginPage) {
+      if (user) {
+        try {
+          await window.ensureTeacherProfile(user);
+        } catch (err) {
+          console.error('Failed to ensure teacher profile:', err);
+        }
+        window.location.href = 'dashboard.html';
+        return null;
+      }
+    }
+
+    return user;
+  } catch (err) {
+    console.error('Error during checkAuth:', err);
+    return null;
+  }
 };
 
 window.ensureTeacherProfile = async function(user) {
