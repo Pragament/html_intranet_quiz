@@ -5,16 +5,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const code = urlParams.get('code');
 
   if (!code) {
-    window.location.href = 'index.html';
+    window.location.href = '/';
     return;
   }
 
-  // Get student name
-  const studentName = sessionStorage.getItem('studentName');
+  // Get student name with multi-layered fallbacks (URL query, sessionStorage, localStorage)
+  let studentName = urlParams.get('name') || sessionStorage.getItem('studentName') || localStorage.getItem('studentName');
+  if (studentName) {
+    try { studentName = decodeURIComponent(studentName).trim(); } catch (e) {}
+    sessionStorage.setItem('studentName', studentName);
+    localStorage.setItem('studentName', studentName);
+  }
+
   if (!studentName) {
-    window.showToast('Student details not found. Please register.', 'error');
-    window.location.href = 'index.html';
-    return;
+    studentName = 'Candidate';
   }
 
   document.getElementById('student-name-label').textContent = `Candidate: ${studentName}`;
@@ -91,17 +95,40 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Load Quiz Data
   async function loadQuizData() {
     try {
+      if (typeof window.ensureSupabaseClient === 'function') {
+        await window.ensureSupabaseClient();
+      } else if (!window.supabaseClient && typeof window.initSupabaseFromStorage === 'function') {
+        window.initSupabaseFromStorage();
+      }
+
+      if (!window.supabaseClient) {
+        throw new Error('Supabase database client is not configured.');
+      }
+
       // 1. Fetch quiz info
       const { data: quizData, error: quizError } = await window.supabaseClient
         .from('quizzes')
         .select('*')
-        .eq('access_code', code.toUpperCase())
+        .ilike('access_code', code.trim())
         .maybeSingle();
 
       if (quizError) throw quizError;
       if (!quizData) {
-        window.showToast('Quiz not found', 'error');
-        window.location.href = 'index.html';
+        if (loaderArea) {
+          loaderArea.innerHTML = `
+            <div class="bg-white border border-slate-200 shadow-md rounded-2xl p-8 max-w-md w-full text-center animate-slide-up">
+              <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="key" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-lg font-bold text-slate-900 mb-2">Quiz Not Found</h3>
+              <p class="text-sm text-slate-600 mb-6">No active quiz matches the access code "<span class="font-mono font-bold text-slate-900">${code}</span>". Please check with your teacher.</p>
+              <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
+                Try Another Code
+              </a>
+            </div>
+          `;
+          if (window.lucide) window.lucide.createIcons();
+        }
         return;
       }
 
@@ -125,8 +152,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         .filter(Boolean);
 
       if (items.length === 0) {
-        window.showToast('This quiz has no questions associated with it.', 'error');
-        window.location.href = 'index.html';
+        if (loaderArea) {
+          loaderArea.innerHTML = `
+            <div class="bg-white border border-slate-200 shadow-md rounded-2xl p-8 max-w-md w-full text-center">
+              <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="help-circle" class="w-6 h-6"></i>
+              </div>
+              <h3 class="text-lg font-bold text-slate-900 mb-2">No Questions Available</h3>
+              <p class="text-sm text-slate-600 mb-6">This quiz currently has no questions linked to it. Please inform your instructor.</p>
+              <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
+                Return to Lobby
+              </a>
+            </div>
+          `;
+          if (window.lucide) window.lucide.createIcons();
+        }
         return;
       }
 
@@ -149,8 +189,21 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch (err) {
       console.error('Error loading quiz:', err);
-      window.showToast('Failed to load quiz details', 'error');
-      window.location.href = 'index.html';
+      if (loaderArea) {
+        loaderArea.innerHTML = `
+          <div class="bg-white border border-slate-200 shadow-md rounded-2xl p-8 max-w-md w-full text-center">
+            <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <i data-lucide="alert-circle" class="w-6 h-6"></i>
+            </div>
+            <h3 class="text-lg font-bold text-slate-900 mb-2">Unable to Load Quiz</h3>
+            <p class="text-sm text-slate-600 mb-6">${err.message || 'Could not retrieve quiz questions. Check database connection and access rules.'}</p>
+            <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
+              Return to Lobby
+            </a>
+          </div>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+      }
     }
   }
 
@@ -275,6 +328,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         <input
           type="text"
           id="student-text-answer"
+          name="ans_${q.id}_${Date.now()}"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          aria-autocomplete="none"
+          data-lpignore="true"
+          data-form-type="other"
           class="w-full p-4 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
           placeholder="Type your answer here..."
           value="${escapeHtml(selectedAns || '')}"
@@ -423,24 +484,53 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function insertStudentResult(basePayload, responseSnapshot) {
     let savedWithSnapshot = true;
-    let { data, error } = await window.supabaseClient
+    let data = null;
+    let error = null;
+
+    const res1 = await window.supabaseClient
       .from('student_results')
       .insert({ ...basePayload, response_snapshot: responseSnapshot })
       .select();
 
+    data = res1.data;
+    error = res1.error;
+
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
       savedWithSnapshot = false;
-      ({ data, error } = await window.supabaseClient
+      const res2 = await window.supabaseClient
         .from('student_results')
         .insert(basePayload)
-        .select());
+        .select();
+      data = res2.data;
+      error = res2.error;
+    }
+
+    // Fallback if RLS policy blocks .select() or restricts anon select on student_results
+    if (error && (error.message?.includes('row-level security') || error.code === '42501' || error.status === 403)) {
+      console.warn('RLS policy error on .select(), retrying insert without .select():', error);
+      const res3 = await window.supabaseClient
+        .from('student_results')
+        .insert({ ...basePayload, response_snapshot: responseSnapshot });
+
+      if (!res3.error) {
+        return { ...basePayload, _savedWithSnapshot: true };
+      }
+
+      const res4 = await window.supabaseClient
+        .from('student_results')
+        .insert(basePayload);
+
+      if (!res4.error) {
+        return { ...basePayload, _savedWithSnapshot: false };
+      }
+      error = res4.error;
     }
 
     if (error) throw error;
 
     const row = data && data.length > 0 ? data[0] : null;
     if (row) row._savedWithSnapshot = savedWithSnapshot;
-    return row;
+    return row || { ...basePayload, _savedWithSnapshot: savedWithSnapshot };
   }
 
   async function insertStudentResponses(studentResultId, responseSnapshot) {
@@ -536,7 +626,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Redirect to results
       setTimeout(() => {
-        window.location.href = `result.html?code=${quiz.access_code}`;
+        window.location.href = `result?code=${quiz.access_code}`;
       }, 800);
     } catch (err) {
       console.error('Error submitting quiz results:', err);

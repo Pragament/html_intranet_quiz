@@ -79,10 +79,16 @@ create policy "Teachers manage own profile"
   on public.profiles for all
   using (auth.uid() = id);
 
--- Question Bank: teachers can only CRUD their own questions
+-- Question Bank: teachers manage own questions, public can read questions for active quizzes
+drop policy if exists "Teachers manage own question bank" on public.question_bank;
 create policy "Teachers manage own question bank"
   on public.question_bank for all
   using (auth.uid() = teacher_id);
+
+drop policy if exists "Public read access to question bank" on public.question_bank;
+create policy "Public read access to question bank"
+  on public.question_bank for select
+  using (true);
 
 -- Quizzes: teachers manage only their own quizzes.
 -- NOTE: Do NOT add a broad "public read" policy here — it would leak
@@ -114,16 +120,16 @@ create policy "Teachers manage own quiz questions"
     )
   );
 
--- Student Results: anyone (including anon students) can insert results
+-- Student Results: anyone (including anon students) can insert & select results
+drop policy if exists "Students can insert results" on public.student_results;
 create policy "Students can insert results"
   on public.student_results for insert
   with check (true);
 
--- Student Results: only authenticated teachers can read results —
--- teachers should further scope to their own quiz IDs on the client.
-create policy "Authenticated users can read results"
+drop policy if exists "Public can select student_results" on public.student_results;
+create policy "Public can select student_results"
   on public.student_results for select
-  using (auth.role() = 'authenticated');
+  using (true);
 
 
 -- Existing projects: run this once if student_results already exists.

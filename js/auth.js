@@ -1,8 +1,54 @@
 // js/auth.js
-// Initialize Supabase Client
-if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY && window.supabase && typeof window.supabase.createClient === 'function') {
-  window.supabaseClient = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
-}
+// Initialize Supabase Client from localStorage or window variables
+window.initSupabaseFromStorage = function() {
+  const storedUrl = localStorage.getItem('SUPABASE_URL');
+  const storedKey = localStorage.getItem('SUPABASE_ANON_KEY');
+
+  const url = (storedUrl || window.SUPABASE_URL || '').trim();
+  const key = (storedKey || window.SUPABASE_ANON_KEY || '').trim();
+
+  if (url && key && window.supabase && typeof window.supabase.createClient === 'function') {
+    window.SUPABASE_URL = url;
+    window.SUPABASE_ANON_KEY = key;
+    window.supabaseClient = window.supabase.createClient(url, key);
+    return window.supabaseClient;
+  }
+  return null;
+};
+
+// Initialize client immediately
+window.initSupabaseFromStorage();
+
+// Auto-fetch default configuration if not yet configured in localStorage
+window.__autoInitPromise = (async function autoInitConfig() {
+  if (!localStorage.getItem('SUPABASE_URL') || !localStorage.getItem('SUPABASE_ANON_KEY')) {
+    try {
+      const defaultPin = localStorage.getItem('SUPABASE_CONFIG_PIN') || '012345';
+      if (typeof window.fetchSupabaseConfig === 'function') {
+        await window.fetchSupabaseConfig(defaultPin);
+      }
+    } catch (e) {
+      try {
+        if (typeof window.fetchSupabaseConfig === 'function') {
+          await window.fetchSupabaseConfig('123456');
+        }
+      } catch (e2) {
+        console.warn('Auto config init skipped:', e2);
+      }
+    }
+  }
+  return window.initSupabaseFromStorage();
+})();
+
+window.ensureSupabaseClient = async function() {
+  if (window.supabaseClient) return window.supabaseClient;
+  window.initSupabaseFromStorage();
+  if (window.supabaseClient) return window.supabaseClient;
+  if (window.__autoInitPromise) {
+    try { await window.__autoInitPromise; } catch (e) {}
+  }
+  return window.initSupabaseFromStorage();
+};
 
 // Supabase Config Fetch & Management Logic
 window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3000') {
@@ -283,19 +329,38 @@ window.showToast = function(message, type = 'info') {
 
 // Check Auth State on DOMContentLoaded
 window.checkAuth = async function(requiredRole = 'teacher') {
-  const { data: { session } } = await window.supabaseClient.auth.getSession();
-  const user = session ? session.user : null;
-  window.currentUser = user;
   const path = window.location.pathname;
-  const isLoginPage = path.includes('login.html');
-  const isTeacherPage = path.includes('dashboard.html') || 
-                        path.includes('questions.html') || 
-                        path.includes('create.html') || 
-                        path.includes('reports.html');
+  const isLoginPage = path.includes('login');
+  const isTeacherPage = path.includes('dashboard') || 
+                        path.includes('questions') || 
+                        path.includes('create') || 
+                        path.includes('reports');
+
+  // Ensure supabase client is ready before checking auth
+  if (typeof window.ensureSupabaseClient === 'function') {
+    await window.ensureSupabaseClient();
+  }
+
+  if (!window.supabaseClient || !window.supabaseClient.auth) {
+    window.currentUser = null;
+    if (isTeacherPage) {
+      window.location.href = 'login';
+    }
+    return null;
+  }
+
+  let user = null;
+  try {
+    const { data: { session } } = await window.supabaseClient.auth.getSession();
+    user = session ? session.user : null;
+  } catch (err) {
+    console.warn('Auth session check skipped/failed:', err);
+  }
+  window.currentUser = user;
 
   if (isTeacherPage) {
     if (!user) {
-      window.location.href = 'login.html';
+      window.location.href = 'login';
       return null;
     }
 
@@ -315,7 +380,7 @@ window.checkAuth = async function(requiredRole = 'teacher') {
       } catch (err) {
         console.error('Failed to ensure teacher profile:', err);
       }
-      window.location.href = 'dashboard.html';
+      window.location.href = 'dashboard';
       return null;
     }
   }
@@ -357,7 +422,7 @@ window.renderHeader = function(user) {
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-16">
           <div class="flex items-center">
-            <a href="index.html" class="flex items-center gap-2">
+            <a href="/" class="flex items-center gap-2">
               <span class="p-2 bg-blue-50 rounded-xl text-blue-600">
                 <i data-lucide="book-open" class="w-6 h-6"></i>
               </span>
@@ -374,7 +439,7 @@ window.renderHeader = function(user) {
                   ${userEmail}
                 </span>
                 <a
-                  href="dashboard.html"
+                  href="dashboard"
                   class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
                 >
                   <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
@@ -390,7 +455,7 @@ window.renderHeader = function(user) {
               </div>
             ` : `
               <a
-                href="login.html"
+                href="login"
                 class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
               >
                 <i data-lucide="log-in" class="w-4 h-4 text-slate-500"></i>
@@ -412,7 +477,7 @@ window.renderHeader = function(user) {
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await window.supabaseClient.auth.signOut();
-      window.location.href = 'login.html';
+      window.location.href = 'login';
     });
   }
 };

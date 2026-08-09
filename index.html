@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -32,10 +33,12 @@
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
   <!-- Custom CSS -->
   <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body class="min-h-screen bg-slate-50 flex flex-col">
 
   <!-- Header Placeholder -->
@@ -69,17 +72,9 @@
               <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <i data-lucide="user" class="h-5 w-5 text-slate-400"></i>
               </div>
-              <input
-                id="student-name"
-                name="student_name_entry"
-                type="text"
-                required
-                autocomplete="off"
-                autocapitalize="words"
-                data-lpignore="true"
-                placeholder="Enter your name"
-                class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm"
-              />
+              <input id="student-name" name="student_name_entry" type="text" required autocomplete="off"
+                autocapitalize="words" data-lpignore="true" placeholder="Enter your name"
+                class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm" />
             </div>
           </div>
 
@@ -91,30 +86,15 @@
               <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <i data-lucide="key-round" class="h-5 w-5 text-slate-400"></i>
               </div>
-              <input
-                id="access-code"
-                name="quiz_access_code_entry"
-                type="text"
-                required
-                autocomplete="new-password"
-                autocorrect="off"
-                autocapitalize="characters"
-                spellcheck="false"
-                inputmode="text"
-                aria-autocomplete="none"
-                data-lpignore="true"
-                data-form-type="other"
-                placeholder="e.g. QUIZ42"
-                class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm font-mono tracking-wider font-bold"
-              />
+              <input id="access-code" name="quiz_access_code_entry" type="text" required autocomplete="new-password"
+                autocorrect="off" autocapitalize="characters" spellcheck="false" inputmode="text"
+                aria-autocomplete="none" data-lpignore="true" data-form-type="other" placeholder="e.g. QUIZ42"
+                class="block w-full pl-10 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-900 placeholder-slate-400 text-sm font-mono tracking-wider font-bold" />
             </div>
           </div>
 
-          <button
-            type="submit"
-            id="submit-btn"
-            class="w-full flex items-center justify-center gap-1.5 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition cursor-pointer"
-          >
+          <button type="button" id="submit-btn"
+            class="w-full flex items-center justify-center gap-1.5 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition cursor-pointer">
             <span id="btn-text">Start Quiz</span>
             <i data-lucide="chevron-right" class="w-4 h-4"></i>
           </button>
@@ -129,86 +109,105 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="config.js"></script>
   <script src="js/auth.js"></script>
-  
+
   <!-- Page Logic -->
   <script>
-    // Always open config.html on application startup if not yet verified in session
-    if (!sessionStorage.getItem('config_verified')) {
-      window.location.href = 'config.html';
-    }
+    // If Intranet Quiz configuration is missing from localStorage, direct user to config PIN setup page
+    (function checkIntranetConfig() {
+      const hasConfig = localStorage.getItem('SUPABASE_URL') && localStorage.getItem('SUPABASE_ANON_KEY');
+      const isVerified = sessionStorage.getItem('config_verified') === 'true';
+      if (!hasConfig && !isVerified) {
+        window.location.href = 'config';
+      }
+    })();
 
-    document.addEventListener('DOMContentLoaded', async () => {
-      // 1. Initial auth check & header render
-      const user = await window.checkAuth();
-      window.renderHeader(user);
-
-      // Force uppercase on access code input
-      const accessCodeInput = document.getElementById('access-code');
-      const studentNameInput = document.getElementById('student-name');
-      const uniqueFieldSuffix = Date.now().toString(36);
-      accessCodeInput.setAttribute('name', `quiz_code_${uniqueFieldSuffix}`);
-      studentNameInput.setAttribute('name', `student_name_${uniqueFieldSuffix}`);
-      accessCodeInput.addEventListener('input', (e) => {
-        e.target.value = e.target.value.toUpperCase();
-      });
-
-      // Handle Form Submit
+    document.addEventListener('DOMContentLoaded', () => {
       const joinForm = document.getElementById('join-quiz-form');
       const submitBtn = document.getElementById('submit-btn');
       const btnText = document.getElementById('btn-text');
+      const accessCodeInput = document.getElementById('access-code');
+      const studentNameInput = document.getElementById('student-name');
 
-      joinForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
+      if (accessCodeInput) {
+        accessCodeInput.addEventListener('input', (e) => {
+          e.target.value = e.target.value.toUpperCase();
+        });
+      }
 
-        const studentName = document.getElementById('student-name').value.trim();
-        const accessCode = accessCodeInput.value.trim();
+      function handleStartQuiz(e) {
+        if (e) {
+          e.preventDefault();
+          if (typeof e.stopPropagation === 'function') e.stopPropagation();
+        }
+
+        const studentName = studentNameInput ? studentNameInput.value.trim() : '';
+        const accessCode = accessCodeInput ? accessCodeInput.value.trim() : '';
 
         if (!studentName) {
           window.showToast('Please enter your name.', 'error');
-          return;
+          return false;
         }
 
         if (!accessCode) {
           window.showToast('Please enter the Quiz Access Code.', 'error');
-          return;
+          return false;
         }
 
-        submitBtn.disabled = true;
-        btnText.textContent = 'Entering Lobby...';
+        if (submitBtn) submitBtn.disabled = true;
+        if (btnText) btnText.textContent = 'Entering Lobby...';
 
-        try {
-          const { data: quiz, error } = await window.supabaseClient
-            .from('quizzes')
-            .select('access_code, title')
-            .eq('access_code', accessCode.toUpperCase())
-            .maybeSingle();
+        // Store student name in sessionStorage and localStorage
+        sessionStorage.setItem('studentName', studentName);
+        localStorage.setItem('studentName', studentName);
 
-          if (error) throw error;
+        window.showToast('Entering Quiz Lobby...', 'success');
 
-          if (!quiz) {
-            window.showToast('Invalid Access Code. Please check with your teacher.', 'error');
-            submitBtn.disabled = false;
-            btnText.textContent = 'Start Quiz';
-            return;
+        // Route to quiz page with code and name URL parameters
+        const targetUrl = `quiz?code=${encodeURIComponent(accessCode)}&name=${encodeURIComponent(studentName)}`;
+        window.location.assign(targetUrl);
+        return false;
+      }
+
+      if (submitBtn) {
+        submitBtn.addEventListener('click', handleStartQuiz);
+      }
+
+      if (joinForm) {
+        joinForm.addEventListener('submit', handleStartQuiz);
+      }
+
+      // Auto-handle URL query params if page was loaded with form inputs
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlName = urlParams.get('student_name_entry') || urlParams.get('student_name') || urlParams.get('name');
+      const urlCode = urlParams.get('quiz_access_code_entry') || urlParams.get('quiz_code') || urlParams.get('code');
+
+      if (urlName && studentNameInput) {
+        studentNameInput.value = urlName;
+      }
+      if (urlCode && accessCodeInput) {
+        accessCodeInput.value = urlCode.toUpperCase();
+      }
+
+      if (window.location.search && (urlName || urlCode)) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      if (urlName && urlCode && joinForm) {
+        setTimeout(() => {
+          if (typeof joinForm.requestSubmit === 'function') {
+            joinForm.requestSubmit();
+          } else {
+            joinForm.dispatchEvent(new Event('submit', { cancelable: true }));
           }
+        }, 300);
+      }
 
-          window.showToast(`Joining quiz: ${quiz.title}...`, 'success');
-          
-          // Store student name in sessionStorage
-          sessionStorage.setItem('studentName', studentName);
-
-          // Route to quiz page
-          setTimeout(() => {
-            window.location.href = `quiz.html?code=${quiz.access_code}`;
-          }, 800);
-        } catch (err) {
-          console.error('Error joining quiz:', err);
-          window.showToast(err.message || 'An error occurred while validating the code', 'error');
-          submitBtn.disabled = false;
-          btnText.textContent = 'Start Quiz';
-        }
-      });
+      // Header & Auth check (runs asynchronously without blocking submit handlers)
+      window.checkAuth()
+        .then(user => window.renderHeader(user))
+        .catch(err => console.warn('checkAuth error:', err));
     });
   </script>
 </body>
+
 </html>
