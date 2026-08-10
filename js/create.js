@@ -156,57 +156,18 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Toggle selected state of question
   window.toggleQuestionSelect = (id) => {
-    const listEl = questionsContainer.querySelector('.overflow-y-auto');
-    const savedScrollTop = listEl ? listEl.scrollTop : 0;
-
     const idx = selectedQuestionIds.indexOf(id);
-    let isSelected = false;
-
     if (idx === -1) {
       selectedQuestionIds.push(id);
-      isSelected = true;
     } else {
       selectedQuestionIds.splice(idx, 1);
-      isSelected = false;
     }
     selectedCountBadge.textContent = selectedQuestionIds.length;
-
-    const card = questionsContainer.querySelector(`[data-question-id="${id}"]`);
-    if (card) {
-      const checkboxSpan = card.querySelector('.question-checkbox-span');
-      if (isSelected) {
-        card.className = 'flex items-start gap-4 p-4 border rounded-xl cursor-pointer transition select-none border-blue-500 bg-blue-50/20';
-        if (checkboxSpan) {
-          checkboxSpan.innerHTML = '<i data-lucide="check-square" class="w-5 h-5"></i>';
-        }
-      } else {
-        card.className = 'flex items-start gap-4 p-4 border rounded-xl cursor-pointer transition select-none border-slate-200 bg-white hover:border-slate-300';
-        if (checkboxSpan) {
-          checkboxSpan.innerHTML = '<i data-lucide="square" class="w-5 h-5 text-slate-400"></i>';
-        }
-      }
-      if (window.lucide) window.lucide.createIcons();
-
-      // Update 'Select All Filtered' button text
-      const toggleBtn = questionsContainer.querySelector('#toggle-all-btn');
-      if (toggleBtn) {
-        const filtered = getFilteredQuestions();
-        const filteredIds = filtered.map((q) => q.id);
-        const allFilteredSelected = filteredIds.every((qId) => selectedQuestionIds.includes(qId));
-        toggleBtn.textContent = allFilteredSelected ? 'Deselect All Filtered' : 'Select All Filtered';
-      }
-    } else {
-      renderQuestions();
-      const newListEl = questionsContainer.querySelector('.overflow-y-auto');
-      if (newListEl) newListEl.scrollTop = savedScrollTop;
-    }
+    renderQuestions();
   };
 
   // Select/Deselect all filtered questions helper
   window.toggleAllFiltered = () => {
-    const listEl = questionsContainer.querySelector('.overflow-y-auto');
-    const savedScrollTop = listEl ? listEl.scrollTop : 0;
-
     const filtered = getFilteredQuestions();
     const filteredIds = filtered.map((q) => q.id);
     const allSelected = filteredIds.every((id) => selectedQuestionIds.includes(id));
@@ -224,11 +185,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     selectedCountBadge.textContent = selectedQuestionIds.length;
     renderQuestions();
-
-    const newListEl = questionsContainer.querySelector('.overflow-y-auto');
-    if (newListEl) {
-      newListEl.scrollTop = savedScrollTop;
-    }
   };
 
   function getFilteredQuestions() {
@@ -251,7 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               : 'You do not have any questions registered in the global bank yet.'}
           </p>
           <a
-            href="questions.html"
+            href="questions"
             class="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700"
           >
             Go register questions first
@@ -267,7 +223,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     let html = `
       <button
-        id="toggle-all-btn"
         type="button"
         onclick="window.toggleAllFiltered()"
         class="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1.5 cursor-pointer bg-blue-50 px-3 py-2 rounded-lg"
@@ -310,7 +265,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       
       html += `
         <div
-          data-question-id="${q.id}"
           onclick="window.toggleQuestionSelect('${q.id}')"
           class="flex items-start gap-4 p-4 border rounded-xl cursor-pointer transition select-none ${
             isSelected
@@ -318,7 +272,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               : 'border-slate-200 bg-white hover:border-slate-300'
           }"
         >
-          <span class="question-checkbox-span mt-0.5 text-blue-600">
+          <span class="mt-0.5 text-blue-600">
             ${
               isSelected
                 ? '<i data-lucide="check-square" class="w-5 h-5"></i>'
@@ -513,7 +467,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       setTimeout(() => {
-        window.location.href = 'dashboard.html';
+        window.location.href = 'dashboard';
       }, 800);
     } catch (err) {
       console.error('Error creating/updating quiz:', err);

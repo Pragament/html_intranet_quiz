@@ -56,3 +56,24 @@ begin
       using (auth.role() = 'authenticated');
   end if;
 end $$;
+
+-- Fix RLS on student_results for student submission
+alter table public.student_results enable row level security;
+
+drop policy if exists "Students can insert results" on public.student_results;
+create policy "Students can insert results"
+  on public.student_results for insert
+  with check (true);
+
+drop policy if exists "Public can select student_results" on public.student_results;
+create policy "Public can select student_results"
+  on public.student_results for select
+  using (true);
+
+-- Fix RLS on question_bank so candidates can read questions during quiz sessions
+alter table public.question_bank enable row level security;
+
+drop policy if exists "Public read access to question bank" on public.question_bank;
+create policy "Public read access to question bank"
+  on public.question_bank for select
+  using (true);

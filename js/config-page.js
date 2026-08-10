@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
       sessionStorage.setItem('config_verified', 'true');
       window.showToast(`Connected to: ${res.name}`, 'success');
       setTimeout(() => {
-        window.location.href = 'index.html';
+        window.location.href = '/';
       }, 500);
     } catch (err) {
       showAlert('error', err.message || 'Failed to fetch configuration for this PIN.');
