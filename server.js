@@ -93,6 +93,22 @@ app.post('/api/webhooks/user', async (req, res) => {
   }
 });
 
+// Dynamic Config Fetch Endpoint
+app.post('/api/config/get', (req, res) => {
+  const { pin } = req.body || {};
+  const url = process.env.SUPABASE_URL || 'https://fkheqnnazjsgxebziwjn.supabase.co';
+  const anonKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZraGVxbm5hempzZ3hlYnppd2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMTYwODIsImV4cCI6MjA5Nzc5MjA4Mn0.1crSgKS1A3-6ZIzx0gRiV1r-ZShlg_Z0LjIo24rvOcY';
+
+  return res.status(200).json({
+    success: true,
+    name: 'Dynamic Intranet Quiz Config',
+    config: {
+      url,
+      anonKey
+    }
+  });
+});
+
 // ==========================================
 // Protected Routes Example
 // ==========================================

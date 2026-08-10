@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // If no result data, redirect back home
   if (rawScore === null || rawTotal === null) {
-    window.location.href = '/';
+    window.location.href = 'index.html';
     return;
   }
 
@@ -63,6 +63,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     sessionStorage.removeItem('lastScore');
     sessionStorage.removeItem('lastTotal');
     sessionStorage.removeItem('lastTitle');
-    window.location.href = '/';
+    window.location.href = 'index.html';
   });
 });
