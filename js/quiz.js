@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const code = urlParams.get('code');
 
   if (!code) {
-    window.location.href = '/';
+    window.location.href = 'index.html';
     return;
   }
 
@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               </div>
               <h3 class="text-lg font-bold text-slate-900 mb-2">Quiz Not Found</h3>
               <p class="text-sm text-slate-600 mb-6">No active quiz matches the access code "<span class="font-mono font-bold text-slate-900">${code}</span>". Please check with your teacher.</p>
-              <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
+              <a href="index.html" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
                 Try Another Code
               </a>
             </div>
@@ -160,7 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               </div>
               <h3 class="text-lg font-bold text-slate-900 mb-2">No Questions Available</h3>
               <p class="text-sm text-slate-600 mb-6">This quiz currently has no questions linked to it. Please inform your instructor.</p>
-              <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
+              <a href="index.html" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
                 Return to Lobby
               </a>
             </div>
@@ -197,7 +197,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <h3 class="text-lg font-bold text-slate-900 mb-2">Unable to Load Quiz</h3>
             <p class="text-sm text-slate-600 mb-6">${err.message || 'Could not retrieve quiz questions. Check database connection and access rules.'}</p>
-            <a href="/" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
+            <a href="index.html" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition">
               Return to Lobby
             </a>
           </div>

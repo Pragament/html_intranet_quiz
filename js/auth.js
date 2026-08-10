@@ -51,49 +51,87 @@ window.ensureSupabaseClient = async function() {
 };
 
 // Supabase Config Fetch & Management Logic
-window.fetchSupabaseConfig = async function(pin, serverUrl = 'http://localhost:3000') {
+window.fetchSupabaseConfig = async function(pin, customServerUrl = '') {
   const cleanPin = (pin || '').trim();
   if (!cleanPin) {
     throw new Error("PIN is required");
   }
 
-  const cleanHost = (serverUrl || 'http://localhost:3000').trim().replace(/\/$/, '');
-  const endpoint = `${cleanHost}/api/config/get`;
+  // Potential endpoints to try in priority order
+  const customHost = (customServerUrl || localStorage.getItem('NAMESERVER_URL') || '').trim().replace(/\/$/, '');
+  const candidateHosts = [];
 
+  if (customHost) {
+    candidateHosts.push(customHost);
+  }
+
+  // If page is hosted on a domain (not file://), try same-origin relative endpoint
+  if (window.location && window.location.origin && window.location.origin !== 'null' && !window.location.origin.includes('file://')) {
+    candidateHosts.push(window.location.origin);
+  }
+
+  // Always include localhost:3000 as a candidate if on HTTP or local development
+  if (window.location && (window.location.protocol === 'http:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    candidateHosts.push('http://localhost:3000');
+  }
+
+  // Unique list of hosts
+  const uniqueHosts = Array.from(new Set(candidateHosts));
   let result = null;
+  let lastError = null;
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
+  for (const host of uniqueHosts) {
+    const endpoint = `${host.replace(/\/$/, '')}/api/config/get`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        uuid: '',
-        pin: cleanPin
-      }),
-      signal: controller.signal
-    });
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid: '', pin: cleanPin }),
+        signal: controller.signal
+      });
 
-    clearTimeout(timeoutId);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.success && data.config) {
-        result = data;
-      } else if (data && data.error) {
-        throw new Error(data.error);
+      clearTimeout(timeoutId);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.success && data.config) {
+          result = data;
+          break;
+        } else if (data && data.error) {
+          lastError = new Error(data.error);
+        }
+      } else {
+        const errData = await response.json().catch(() => ({}));
+        lastError = new Error(errData.error || `Server error (${response.status})`);
       }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastError = err;
+    }
+  }
+
+  if (!result) {
+    const isDefaultPin = cleanPin === '012345' || cleanPin === '123456' || cleanPin === 'default';
+    const hasDefaultConfig = !!(window.DEFAULT_SUPABASE_URL && window.DEFAULT_SUPABASE_ANON_KEY);
+
+    if (hasDefaultConfig && isDefaultPin) {
+      result = {
+        success: true,
+        config: {
+          url: window.DEFAULT_SUPABASE_URL,
+          anonKey: window.DEFAULT_SUPABASE_ANON_KEY
+        },
+        name: 'Default Quiz Platform Config'
+      };
     } else {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `Server error (${response.status})`);
+      const isHttps = window.location.protocol === 'https:';
+      if (isHttps && !customHost) {
+        throw new Error('Unable to reach nameserver API from HTTPS page. Please deploy the nameserver API (e.g. Vercel) or enter your API URL in settings.');
+      }
+      throw lastError || new Error('Could not connect to intranet nameserver for this PIN.');
     }
-  } catch (err) {
-    clearTimeout(timeoutId);
-    if (err.name === 'AbortError') {
-      throw new Error('Connection timed out while fetching configuration.');
-    }
-    throw err;
   }
 
   if (!result || !result.config) {
@@ -422,7 +460,7 @@ window.renderHeader = function(user) {
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between items-center h-16">
           <div class="flex items-center">
-            <a href="/" class="flex items-center gap-2">
+            <a href="index.html" class="flex items-center gap-2">
               <span class="p-2 bg-blue-50 rounded-xl text-blue-600">
                 <i data-lucide="book-open" class="w-6 h-6"></i>
               </span>
