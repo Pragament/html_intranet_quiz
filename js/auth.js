@@ -65,6 +65,12 @@ window.fetchSupabaseConfig = async function(pin, customServerUrl = '') {
     candidateHosts.push(customHost);
   }
 
+  // Production nameserver API (Render). Tried when no custom override is set.
+  const DEFAULT_NAMESERVER_URL = 'https://expressjs-api-intranet-nameserver.onrender.com';
+  if (!customHost) {
+    candidateHosts.push(DEFAULT_NAMESERVER_URL);
+  }
+
   // If page is hosted on a domain (not file://), try same-origin relative endpoint
   if (window.location && window.location.origin && window.location.origin !== 'null' && !window.location.origin.includes('file://')) {
     candidateHosts.push(window.location.origin);

@@ -5,10 +5,26 @@ require('dotenv').config();
 const app = express();
 app.use(express.json());
 
-// Initialize Supabase Client (Service Role key used for admin operations if needed, or Anon key)
-const supabaseUrl = process.env.SUPABASE_URL || 'https://fkheqnnazjsgxebziwjn.supabase.co';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'your-service-role-key';
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+// CORS: allow the GitHub Pages frontend (and local dev) to call this API.
+// The config endpoint only returns a public Supabase anon key, so a
+// permissive origin is safe here.
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Serve static frontend files for local testing
+app.use(express.static(__dirname));
+
+// Initialize Supabase Client (using process.env environment variables)
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabase = (supabaseUrl && supabaseServiceKey) ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
 // ==========================================
 // Auth Middleware (Route Guard)
@@ -96,8 +112,15 @@ app.post('/api/webhooks/user', async (req, res) => {
 // Dynamic Config Fetch Endpoint
 app.post('/api/config/get', (req, res) => {
   const { pin } = req.body || {};
-  const url = process.env.SUPABASE_URL || 'https://fkheqnnazjsgxebziwjn.supabase.co';
-  const anonKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZraGVxbm5hempzZ3hlYnppd2puIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIyMTYwODIsImV4cCI6MjA5Nzc5MjA4Mn0.1crSgKS1A3-6ZIzx0gRiV1r-ZShlg_Z0LjIo24rvOcY';
+  const url = process.env.SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    return res.status(500).json({
+      success: false,
+      error: 'Server environment error: SUPABASE_URL and SUPABASE_ANON_KEY environment variables are missing.'
+    });
+  }
 
   return res.status(200).json({
     success: true,
