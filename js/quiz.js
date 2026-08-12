@@ -617,12 +617,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (!resultRow?._savedWithSnapshot && !responsesSaved) {
         throw new Error('Your score was saved, but the database did not save your answers.');
       }
-      window.showToast('Quiz completed and submitted successfully!', 'success');
+      // Build detailed question review snapshot for student review
+      const quizReviewData = questions.map((q, idx) => {
+        const studentAns = answers[q.id] || '';
+        const isCorrect = isAnswerCorrect(q, studentAns);
+        return {
+          question_number: idx + 1,
+          id: q.id,
+          question_text: q.question_text,
+          type: q.type || 'MCQ',
+          option_a: q.option_a || null,
+          option_b: q.option_b || null,
+          option_c: q.option_c || null,
+          option_d: q.option_d || null,
+          correct_option: q.correct_option || '',
+          student_answer: studentAns,
+          is_correct: isCorrect,
+          syllabus_tag: q.syllabus_tag || ''
+        };
+      });
 
       // 3. Save to sessionStorage
       sessionStorage.setItem('lastScore', finalScore.toString());
       sessionStorage.setItem('lastTotal', questions.length.toString());
       sessionStorage.setItem('lastTitle', quiz.title);
+      sessionStorage.setItem('lastQuizReview', JSON.stringify(quizReviewData));
 
       // Redirect to results
       setTimeout(() => {
