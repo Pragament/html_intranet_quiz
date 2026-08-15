@@ -31,6 +31,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   const importBtnText = document.getElementById('import-btn-text');
   const copyAiPromptBtn = document.getElementById('copy-ai-prompt-btn');
 
+  const questionTypeSelect = document.getElementById('question-type');
+  const mcqFieldsContainer = document.getElementById('mcq-fields-container');
+  const textAnswerFieldsContainer = document.getElementById('text-answer-fields-container');
+  const correctTextAnswer = document.getElementById('correct-text-answer');
+
+  function updateQuestionTypeUI() {
+    const qType = questionTypeSelect ? questionTypeSelect.value : 'MCQ';
+    const isMCQ = qType === 'MCQ';
+
+    if (mcqFieldsContainer) {
+      if (isMCQ) {
+        mcqFieldsContainer.classList.remove('hidden');
+      } else {
+        mcqFieldsContainer.classList.add('hidden');
+      }
+    }
+
+    if (textAnswerFieldsContainer) {
+      if (isMCQ) {
+        textAnswerFieldsContainer.classList.add('hidden');
+      } else {
+        textAnswerFieldsContainer.classList.remove('hidden');
+      }
+    }
+
+    const optA = document.getElementById('option-a');
+    const optB = document.getElementById('option-b');
+    const optC = document.getElementById('option-c');
+    const optD = document.getElementById('option-d');
+    if (optA) optA.required = isMCQ;
+    if (optB) optB.required = isMCQ;
+    if (optC) optC.required = isMCQ;
+    if (optD) optD.required = isMCQ;
+    if (correctTextAnswer) correctTextAnswer.required = !isMCQ;
+  }
+
+  if (questionTypeSelect) {
+    questionTypeSelect.addEventListener('change', updateQuestionTypeUI);
+    updateQuestionTypeUI();
+  }
+
   // Toggle form panel
   let showForm = false;
   function toggleForm(forceState) {
@@ -39,11 +80,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       addFormPanel.classList.remove('hidden');
       toggleText.textContent = 'Hide Form';
       toggleIcon.setAttribute('data-lucide', 'x');
+      updateQuestionTypeUI();
     } else {
       addFormPanel.classList.add('hidden');
       toggleText.textContent = 'Add Question';
       toggleIcon.setAttribute('data-lucide', 'plus');
       manualForm.reset();
+      if (questionTypeSelect) questionTypeSelect.value = 'MCQ';
+      updateQuestionTypeUI();
       csvFileInput.value = '';
       csvPasteInput.value = '';
       setImportMode('file');
@@ -294,37 +338,62 @@ Rules:
   manualForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
+    const qType = (questionTypeSelect ? questionTypeSelect.value : 'MCQ').trim();
     const syllabusTag = document.getElementById('syllabus-tag').value.trim();
     const questionText = document.getElementById('question-text').value.trim();
-    const optionA = document.getElementById('option-a').value.trim();
-    const optionB = document.getElementById('option-b').value.trim();
-    const optionC = document.getElementById('option-c').value.trim();
-    const optionD = document.getElementById('option-d').value.trim();
-    const correctOption = document.getElementById('correct-option').value;
 
-    if (!syllabusTag || !questionText || !optionA || !optionB || !optionC || !optionD) {
-      window.showToast('Please fill out all fields', 'error');
+    if (!syllabusTag || !questionText) {
+      window.showToast('Please fill out the syllabus tag and question text.', 'error');
       return;
+    }
+
+    let insertPayload = {
+      teacher_id: user.id,
+      type: qType,
+      syllabus_tag: syllabusTag,
+      question_text: questionText,
+      option_a: null,
+      option_b: null,
+      option_c: null,
+      option_d: null,
+      correct_option: '',
+    };
+
+    if (qType === 'MCQ') {
+      const optionA = document.getElementById('option-a').value.trim();
+      const optionB = document.getElementById('option-b').value.trim();
+      const optionC = document.getElementById('option-c').value.trim();
+      const optionD = document.getElementById('option-d').value.trim();
+      const correctOption = document.getElementById('correct-option').value;
+
+      if (!optionA || !optionB || !optionC || !optionD) {
+        window.showToast('Please fill out all 4 MCQ options.', 'error');
+        return;
+      }
+
+      insertPayload.option_a = optionA;
+      insertPayload.option_b = optionB;
+      insertPayload.option_c = optionC;
+      insertPayload.option_d = optionD;
+      insertPayload.correct_option = correctOption;
+    } else {
+      const textAns = correctTextAnswer ? correctTextAnswer.value.trim() : '';
+      if (!textAns) {
+        window.showToast('Please provide the correct model answer.', 'error');
+        return;
+      }
+      insertPayload.correct_option = textAns;
     }
 
     submitQuestionBtn.disabled = true;
     submitQuestionBtn.textContent = 'Saving...';
 
     try {
-      const { error } = await window.supabaseClient.from('question_bank').insert({
-        teacher_id: user.id,
-        syllabus_tag: syllabusTag,
-        question_text: questionText,
-        option_a: optionA,
-        option_b: optionB,
-        option_c: optionC,
-        option_d: optionD,
-        correct_option: correctOption,
-      });
+      const { error } = await window.supabaseClient.from('question_bank').insert(insertPayload);
 
       if (error) throw error;
 
-      window.showToast('Question added successfully!', 'success');
+      window.showToast(`${qType} question added successfully!`, 'success');
       toggleForm(false);
       fetchQuestions();
     } catch (err) {
