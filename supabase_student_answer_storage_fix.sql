@@ -70,6 +70,11 @@ create policy "Public can select student_results"
   on public.student_results for select
   using (true);
 
+drop policy if exists "Authenticated users can manage student_results" on public.student_results;
+create policy "Authenticated users can manage student_results"
+  on public.student_results for all
+  using (auth.role() = 'authenticated');
+
 -- Fix RLS on question_bank so candidates can read questions during quiz sessions
 alter table public.question_bank enable row level security;
 

@@ -131,6 +131,11 @@ create policy "Public can select student_results"
   on public.student_results for select
   using (true);
 
+drop policy if exists "Authenticated users can manage student_results" on public.student_results;
+create policy "Authenticated users can manage student_results"
+  on public.student_results for all
+  using (auth.role() = 'authenticated');
+
 
 -- Existing projects: run this once if student_results already exists.
 alter table public.student_results
