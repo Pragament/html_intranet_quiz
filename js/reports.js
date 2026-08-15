@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       quizzes = quizzesData || [];
       console.log('✅ [Reports] Quizzes fetched successfully:', quizzes.length, 'quizzes');
 
+      let loadedQuizQuestions = [];
       // 1a. Fetch quiz_questions with question_bank to count FIB/Short Answer per quiz
       if (quizzes.length > 0) {
         const quizIds = quizzes.map(q => q.id);
@@ -98,14 +99,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (qqError) {
           console.warn('⚠️ [Reports] Error fetching quiz questions:', qqError);
         } else {
-          console.log('📥 [Reports] All quizQuestions:', quizQuestions);
+          loadedQuizQuestions = quizQuestions || [];
+          console.log('📥 [Reports] All quizQuestions:', loadedQuizQuestions);
           // Initialize map with 0 for all quizzes
           quizFibShortCountMap = {};
           quizIds.forEach(id => quizFibShortCountMap[id] = 0);
 
           // Count FIB/Short Answer
-          if (quizQuestions) {
-            quizQuestions.forEach(qq => {
+          if (loadedQuizQuestions) {
+            loadedQuizQuestions.forEach(qq => {
               console.log('👉 [Reports] Processing quiz question:', qq);
               if (qq.question_bank) {
                 const qType = qq.question_bank.type || 'MCQ';
@@ -155,8 +157,85 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw resultsError;
       }
 
-      results = resultsData || [];
-      console.log('✅ [Reports] Results fetched successfully:', results.length, 'results');
+      let fetchedResults = resultsData || [];
+
+      // 3. Batch fetch student_responses to evaluate grades in real time
+      let allResponses = [];
+      try {
+        const { data: respData, error: respError } = await window.supabaseClient
+          .from('student_responses')
+          .select('*')
+          .in('quiz_id', teacherQuizIds);
+        if (!respError && respData) {
+          allResponses = respData;
+        }
+      } catch (e) {
+        console.warn('Could not batch fetch student_responses:', e);
+      }
+
+      // Map questions by quiz_id
+      const quizQuestionsMap = new Map();
+      loadedQuizQuestions.forEach(qq => {
+        if (!quizQuestionsMap.has(qq.quiz_id)) {
+          quizQuestionsMap.set(qq.quiz_id, []);
+        }
+        if (qq.question_bank) {
+          quizQuestionsMap.get(qq.quiz_id).push(qq.question_bank);
+        }
+      });
+
+      // Map responses by student_result_id and by (quiz_id + student_name)
+      const responsesByResultId = new Map();
+      const responsesByNameAndQuiz = new Map();
+      allResponses.forEach(resp => {
+        if (resp.student_result_id) {
+          const k = String(resp.student_result_id);
+          if (!responsesByResultId.has(k)) responsesByResultId.set(k, []);
+          responsesByResultId.get(k).push(resp);
+        }
+        if (resp.quiz_id && resp.student_name) {
+          const k = `${resp.quiz_id}::${resp.student_name}`;
+          if (!responsesByNameAndQuiz.has(k)) responsesByNameAndQuiz.set(k, []);
+          responsesByNameAndQuiz.get(k).push(resp);
+        }
+      });
+
+      // Evaluate each result's score dynamically
+      fetchedResults.forEach(r => {
+        const qList = quizQuestionsMap.get(r.quiz_id) || [];
+        if (qList.length === 0) return;
+
+        const snapshotResps = normalizeResponseSnapshot(r.response_snapshot, r);
+        const tableResps = responsesByResultId.get(String(r.id)) ||
+                           responsesByNameAndQuiz.get(`${r.quiz_id}::${r.student_name}`) ||
+                           [];
+        const localResps = snapshotResps.length === 0 && tableResps.length === 0
+          ? getLocalResponseSnapshot(r.id, r)
+          : [];
+
+        if (snapshotResps.length > 0 && tableResps.length > 0) {
+          mergeTableGradesIntoSnapshot(snapshotResps, tableResps);
+        }
+
+        const mergedResps = snapshotResps.length > 0 ? snapshotResps : (tableResps.length > 0 ? tableResps : localResps);
+        const lookupMaps = buildResponseLookupMaps(mergedResps);
+
+        let totalCorrect = 0;
+        qList.forEach(q => {
+          const sResp = findStudentResponse(q, lookupMaps);
+          const evaluation = evaluateQuestionGrade(q.type || sResp?.question_type, sResp, q);
+          if (evaluation.isCorrect) {
+            totalCorrect++;
+          }
+        });
+
+        if (totalCorrect > (Number(r.score) || 0) || (mergedResps.length > 0 && totalCorrect !== Number(r.score))) {
+          r.score = totalCorrect;
+        }
+      });
+
+      results = fetchedResults;
+      console.log('✅ [Reports] Results synchronized & fetched successfully:', results.length, 'results');
       filterAndRender();
     } catch (err) {
       console.error('❌ [Reports] Unhandled error in loadReportData:', err);
@@ -752,6 +831,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       correctCompare = correctAnswer;
       const cleanCorrectAns = correctAnswer.toLowerCase();
       isCorrect = Boolean(cleanStudentAns && cleanCorrectAns && cleanStudentAns === cleanCorrectAns);
+
+      const manualMarks = studentResp?.marks_assigned;
+      if (manualMarks != null) {
+        isCorrect = Number(manualMarks) > 0;
+      }
     } else {
       countsTowardAutoScore = true;
       correctAnswer = String(question.correct_option || '').trim();
@@ -761,8 +845,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       isCorrect = Boolean(cleanStudentAns && cleanCorrectAns && cleanStudentAns === cleanCorrectAns);
 
       const manualMarks = studentResp?.marks_assigned;
-      if (manualMarks != null && Number(manualMarks) > 0) {
-        isCorrect = true;
+      if (manualMarks != null) {
+        isCorrect = Number(manualMarks) > 0;
       }
     }
 
@@ -1004,7 +1088,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       const savedScore = Number(resultRow?.score);
       const savedTotal = Number(resultRow?.total_questions);
-      const scoreNumerator = Number.isFinite(savedScore) ? savedScore : totalCorrect;
+      const scoreNumerator = totalCorrect;
       const scoreDenominator = Number.isFinite(savedTotal) && savedTotal > 0
         ? savedTotal
         : (autoGradableCount > 0 ? autoGradableCount : questions.length);
@@ -1013,6 +1097,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                             scorePct >= 60 ? 'text-blue-700 bg-blue-50 border-blue-200' :
                             scorePct >= 40 ? 'text-amber-700 bg-amber-50 border-amber-200' :
                                              'text-rose-700 bg-rose-50 border-rose-200';
+
+      // Keep database and table synchronized with evaluated score
+      if (resultId && (!Number.isFinite(savedScore) || savedScore !== totalCorrect)) {
+        window.supabaseClient
+          .from('student_results')
+          .update({ score: totalCorrect })
+          .eq('id', resultId)
+          .then(({ error }) => {
+            if (!error) {
+              const localRes = results.find((r) => String(r.id) === String(resultId));
+              if (localRes) {
+                localRes.score = totalCorrect;
+                updateMetrics(getCurrentlyFilteredResults());
+              }
+            }
+          })
+          .catch((e) => console.warn('Could not sync score:', e));
+      }
 
       let contentHtml = `
         <div class="flex items-center justify-between p-4 rounded-xl border ${scorePctColor} mb-5">
@@ -2076,14 +2178,112 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error('Validation failed');
       }
 
-      // Perform bulk update
+      // Perform bulk update with question-level responses and score
       const updatePromises = validGrades.map(async (grade) => {
-        const { error } = await window.supabaseClient
-          .from('student_results')
-          .update({ score: grade.score })
-          .eq('id', grade.id);
+        const submissionId = grade.id;
+        const resultRow = await fetchResultRow(submissionId);
+        const quizId = resultRow?.quiz_id;
+        const resolvedStudentName = resultRow?.student_name || '';
 
-        if (error) throw error;
+        // 1. Fetch questions and existing responses for this submission
+        if (quizId) {
+          const { data: quizQuestions } = await window.supabaseClient
+            .from('quiz_questions')
+            .select('*, question_bank(*)')
+            .eq('quiz_id', quizId);
+
+          const existingResponses = await fetchStudentResponses(submissionId, quizId, resolvedStudentName);
+          const responseMap = new Map();
+          existingResponses.forEach((resp) => {
+            if (resp.question_text) {
+              responseMap.set(resp.question_text.trim().toLowerCase(), resp);
+            }
+          });
+
+          // 2. Parse per-question marks from ai_reasoning (e.g. Q1: 1/1, Q2: 0/1)
+          const questions = (quizQuestions || []).map((qq) => qq.question_bank).filter(Boolean);
+          const updatedSnapshot = Array.isArray(resultRow?.response_snapshot) ? [...resultRow.response_snapshot] : [];
+
+          for (let i = 0; i < questions.length; i++) {
+            const q = questions[i];
+            const qIndex = i + 1;
+            const qType = q.type || 'MCQ';
+            const proposedMarkStr = getAiProposedMark(grade.ai_reasoning, qIndex, qType);
+
+            let marksToAssign = null;
+            if (proposedMarkStr) {
+              const numMatch = proposedMarkStr.match(/^([0-9.]+)/);
+              if (numMatch) marksToAssign = parseFloat(numMatch[1]);
+            } else if (qType !== 'MCQ' && grade.score > 0 && questions.length === 1) {
+              marksToAssign = grade.score;
+            }
+
+            const qTextKey = (q.question_text || '').trim().toLowerCase();
+            const existingResp = responseMap.get(qTextKey);
+
+            if (existingResp) {
+              await window.supabaseClient
+                .from('student_responses')
+                .update({
+                  marks_assigned: marksToAssign,
+                  ai_reasoning: grade.ai_reasoning || null
+                })
+                .eq('id', existingResp.id);
+            } else if (marksToAssign !== null) {
+              await window.supabaseClient
+                .from('student_responses')
+                .insert({
+                  quiz_id: quizId,
+                  student_result_id: submissionId,
+                  student_name: resolvedStudentName,
+                  question_text: q.question_text || '',
+                  question_bank_id: q.id,
+                  student_answer: '',
+                  question_type: qType,
+                  marks_assigned: marksToAssign,
+                  ai_reasoning: grade.ai_reasoning || null
+                });
+            }
+
+            // Also update in-memory snapshot if present
+            if (updatedSnapshot.length > 0) {
+              const snapItem = updatedSnapshot.find(s => (s.question_text || '').trim().toLowerCase() === qTextKey);
+              if (snapItem) {
+                snapItem.marks_assigned = marksToAssign;
+                snapItem.ai_reasoning = grade.ai_reasoning || null;
+              }
+            }
+          }
+
+          // 3. Update the overall score and snapshot in student_results
+          const updatePayload = { score: grade.score };
+          if (updatedSnapshot.length > 0) {
+            updatePayload.response_snapshot = updatedSnapshot;
+          }
+
+          let { error: updateError } = await window.supabaseClient
+            .from('student_results')
+            .update(updatePayload)
+            .eq('id', submissionId);
+
+          if (updateError && isMissingSchemaItem(updateError, 'response_snapshot')) {
+            const { error: retryError } = await window.supabaseClient
+              .from('student_results')
+              .update({ score: grade.score })
+              .eq('id', submissionId);
+            updateError = retryError;
+          }
+
+          if (updateError) throw updateError;
+        } else {
+          // Direct score update fallback if no quizId
+          const { error } = await window.supabaseClient
+            .from('student_results')
+            .update({ score: grade.score })
+            .eq('id', submissionId);
+
+          if (error) throw error;
+        }
       });
 
       await Promise.all(updatePromises);

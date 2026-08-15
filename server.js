@@ -18,8 +18,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static frontend files for local testing
-app.use(express.static(__dirname));
+// Serve static frontend files for local testing (with clean URL support)
+app.use(express.static(__dirname, { extensions: ['html', 'htm'] }));
 
 // Initialize Supabase Client (using process.env environment variables)
 const supabaseUrl = process.env.SUPABASE_URL;
