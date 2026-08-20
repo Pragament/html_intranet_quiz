@@ -182,12 +182,22 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (item.type === 'MCQ') {
           contentHtml += `<div class="grid grid-cols-1 gap-2.5 mt-4">`;
-          (['A', 'B', 'C', 'D']).forEach((letter) => {
-            const optionText = item[`option_${letter.toLowerCase()}`];
+          const reviewOptions = Array.isArray(item.options) && item.options.length > 0
+            ? item.options
+            : ['A', 'B', 'C', 'D'].map((letter) => ({
+                display_letter: letter,
+                original_letter: letter,
+                text: item[`option_${letter.toLowerCase()}`],
+              }));
+
+          reviewOptions.forEach((option) => {
+            const letter = option.display_letter || option.original_letter;
+            const originalLetter = option.original_letter || letter;
+            const optionText = option.text;
             if (!optionText && optionText !== '') return;
 
-            const isCorrectOption = (item.correct_option || '').toUpperCase() === letter;
-            const isStudentOption = (item.student_answer || '').toUpperCase() === letter;
+            const isCorrectOption = (item.correct_option || '').toUpperCase() === originalLetter;
+            const isStudentOption = (item.student_answer || '').toUpperCase() === originalLetter;
 
             let optionStyle = 'border-slate-200 bg-slate-50/50 text-slate-700';
             let optionBadge = '';

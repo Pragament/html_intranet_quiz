@@ -17,6 +17,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const quizDurationInput = document.getElementById('quiz-duration');
   const quizCodeInput = document.getElementById('quiz-code');
   const quizRandomizeInput = document.getElementById('quiz-randomize');
+  const quizRandomizeOptionsInput = document.getElementById('quiz-randomize-options');
+  const quizQuestionCountInput = document.getElementById('quiz-question-count');
   const quizOfflineModeInput = document.getElementById('quiz-offline-mode');
   const otpContainer = document.getElementById('otp-container');
   const displayStartOtp = document.getElementById('display-start-otp');
@@ -81,6 +83,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       quizDurationInput.value = quizData.duration_minutes;
       quizCodeInput.value = quizData.access_code;
       quizRandomizeInput.checked = quizData.is_random;
+      if (quizRandomizeOptionsInput) {
+        quizRandomizeOptionsInput.checked = quizData.randomize_options !== false;
+      }
+      if (quizQuestionCountInput && quizData.question_count) {
+        quizQuestionCountInput.value = quizData.question_count;
+      }
 
       if (quizData.offline_mode) {
         quizOfflineModeInput.checked = true;
@@ -104,6 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       selectedQuestionIds = junctionData.map((item) => item.question_bank_id);
       selectedCountBadge.textContent = selectedQuestionIds.length;
+      syncQuestionCountLimit();
       
     } catch (err) {
       console.error('Error loading quiz for edit:', err);
@@ -163,6 +172,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectedQuestionIds.splice(idx, 1);
     }
     selectedCountBadge.textContent = selectedQuestionIds.length;
+    syncQuestionCountLimit();
     renderQuestions();
   };
 
@@ -184,6 +194,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
     selectedCountBadge.textContent = selectedQuestionIds.length;
+    syncQuestionCountLimit();
     renderQuestions();
   };
 
@@ -306,6 +317,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderQuestions();
   });
 
+  function syncQuestionCountLimit() {
+    if (!quizQuestionCountInput) return;
+    quizQuestionCountInput.max = selectedQuestionIds.length || 1;
+  }
+
   // Submit and Create/Update Quiz
   createForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -315,6 +331,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const duration = parseInt(quizDurationInput.value) || 15;
     const accessCode = quizCodeInput.value.trim().toUpperCase();
     const isRandom = quizRandomizeInput.checked;
+    const randomizeOptions = quizRandomizeOptionsInput ? quizRandomizeOptionsInput.checked : true;
+    const requestedQuestionCount = quizQuestionCountInput?.value
+      ? parseInt(quizQuestionCountInput.value, 10)
+      : selectedQuestionIds.length;
     const isOffline = quizOfflineModeInput.checked;
     const finalStartOtp = isOffline ? currentStartOtp : null;
     const finalSubmitOtp = isOffline ? currentSubmitOtp : null;
@@ -326,6 +346,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (selectedQuestionIds.length === 0) {
       window.showToast('Please select at least one question for the quiz.', 'error');
+      return;
+    }
+
+    if (!Number.isInteger(requestedQuestionCount) || requestedQuestionCount < 1 || requestedQuestionCount > selectedQuestionIds.length) {
+      window.showToast('Questions to ask must be between 1 and the number of selected questions.', 'error');
       return;
     }
 
@@ -371,9 +396,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const updatePayload = {
           title,
           rounds,
-          question_count: selectedQuestionIds.length,
+          question_count: requestedQuestionCount,
           duration_minutes: duration,
           is_random: isRandom,
+          randomize_questions: isRandom,
+          randomize_options: randomizeOptions,
           access_code: accessCode,
           offline_mode: isOffline,
           start_otp: finalStartOtp,
@@ -386,7 +413,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           .eq('id', editQuizId);
 
         if (quizUpdateError && (quizUpdateError.message?.includes('schema cache') || quizUpdateError.message?.includes('column') || quizUpdateError.code === 'PGRST204')) {
-          const { offline_mode, start_otp, submit_otp, ...basicUpdatePayload } = updatePayload;
+          const { offline_mode, start_otp, submit_otp, randomize_questions, randomize_options, ...basicUpdatePayload } = updatePayload;
           const { error: retryError } = await window.supabaseClient
             .from('quizzes')
             .update(basicUpdatePayload)
@@ -423,9 +450,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           teacher_id: user.id,
           title,
           rounds,
-          question_count: selectedQuestionIds.length,
+          question_count: requestedQuestionCount,
           duration_minutes: duration,
           is_random: isRandom,
+          randomize_questions: isRandom,
+          randomize_options: randomizeOptions,
           access_code: accessCode,
           offline_mode: isOffline,
           start_otp: finalStartOtp,
@@ -439,7 +468,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           .single();
 
         if (quizError && (quizError.message?.includes('schema cache') || quizError.message?.includes('column') || quizError.code === 'PGRST204')) {
-          const { offline_mode, start_otp, submit_otp, ...basicInsertPayload } = insertPayload;
+          const { offline_mode, start_otp, submit_otp, randomize_questions, randomize_options, ...basicInsertPayload } = insertPayload;
           const { data: retryQuiz, error: retryError } = await window.supabaseClient
             .from('quizzes')
             .insert(basicInsertPayload)

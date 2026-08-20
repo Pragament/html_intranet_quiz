@@ -7,7 +7,9 @@ A lightweight, browser-based quiz platform for classrooms. Built with vanilla HT
 ## ✨ Features
 
 ### 👩‍🏫 Teacher Portal
-- **Create & Edit Quizzes** — Set title, number of rounds, duration, and whether questions are randomized.
+- **Create & Edit Quizzes** — Set title, number of rounds, duration, active question count, and randomization settings.
+- **Sectioned Question Delivery** — Student quizzes are always presented in MCQ, FIB, then Short Answer order. Teachers can optionally randomize question order within each section.
+- **MCQ Option Randomization** — Multiple-choice options are randomized per student by default, while scoring still uses the original correct answer key.
 - **Question Bank** — Add MCQ and fill-in-the-blank questions, tagged by syllabus topic.
 - **Online Mode** — Share an access code; students join and submit results instantly to the database.
 - **Offline (OTP) Mode** — Two-OTP system for anti-cheating in intranet/exam environments:
@@ -19,6 +21,7 @@ A lightweight, browser-based quiz platform for classrooms. Built with vanilla HT
 ### 👨‍🎓 Student Portal
 - Join a quiz using a **Full Name** and **Access Code**.
 - Navigate questions with Previous / Next buttons.
+- Answer sectioned quizzes in the order **MCQ → FIB → Short Answer**. If enabled by the teacher, questions inside each section and MCQ options may appear in a personalized randomized order.
 - In offline mode:
   - Answers are stored **locally in the browser** during the quiz.
   - A **Submit OTP** is required to upload results, preventing early or unauthorized submission.
@@ -95,6 +98,20 @@ This mode is designed for exam environments where internet access should be bloc
 | 5 | Student | Enters the Start OTP → quiz begins. Answers are saved locally. |
 | 6 | Teacher | After quiz ends, turns Wi-Fi back on. Writes the **Submit OTP** on the board. |
 | 7 | Student | Enters the Submit OTP → results are uploaded to Supabase. |
+
+---
+
+## 🎲 Quiz Randomization & Question Count
+
+Teachers can select a larger pool of questions and set **Questions to Ask** to use only a subset. Leaving the field blank uses all selected questions.
+
+During the student attempt:
+- Questions are grouped as **MCQ**, then **FIB**, then **Short Answer**.
+- When **Randomize Questions** is enabled, questions are shuffled only inside their own section.
+- When **Randomize MCQ Options** is enabled, choices are shuffled per student by default.
+- Scoring remains stable because shuffled options keep their original answer keys internally.
+
+For existing Supabase projects, rerun the migration helpers in `supabase_schema.sql` so the `randomize_questions` and `randomize_options` columns are available.
 
 ---
 
