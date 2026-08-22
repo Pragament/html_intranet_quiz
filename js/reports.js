@@ -220,16 +220,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         const mergedResps = snapshotResps.length > 0 ? snapshotResps : (tableResps.length > 0 ? tableResps : localResps);
         const lookupMaps = buildResponseLookupMaps(mergedResps);
 
-        let totalCorrect = 0;
-        qList.forEach(q => {
-          const sResp = findStudentResponse(q, lookupMaps);
-          const evaluation = evaluateQuestionGrade(q.type || sResp?.question_type, sResp, q);
-          if (evaluation.isCorrect) {
-            totalCorrect++;
-          }
-        });
-
-        if (totalCorrect > (Number(r.score) || 0) || (mergedResps.length > 0 && totalCorrect !== Number(r.score))) {
+        // Retain authoritative database score if present; only fallback to evaluated total if score is missing
+        if (r.score !== undefined && r.score !== null && !isNaN(Number(r.score))) {
+          r.score = Number(r.score);
+        } else {
+          let totalCorrect = 0;
+          qList.forEach(q => {
+            const sResp = findStudentResponse(q, lookupMaps);
+            const evaluation = evaluateQuestionGrade(q.type || sResp?.question_type, sResp, q);
+            if (evaluation.isCorrect) {
+              totalCorrect++;
+            }
+          });
           r.score = totalCorrect;
         }
       });
@@ -1251,21 +1253,23 @@ document.addEventListener('DOMContentLoaded', async () => {
       'Do NOT change MCQ answers. Keep their existing result when calculating the total score.',
       '',
       'For each FIB or SHORT_ANSWER row:',
-      'Compare the student answer with the correct answer using semantic meaning, not exact text.',
-      'The CSV correct_key is the authoritative correct answer. Never replace or override it using the question text, outside knowledge, or assumptions.',
+      'The CSV correct_key is the authoritative correct answer. Never replace or override it using outside knowledge, browser tolerance, or assumptions.',
       'Treat answers that differ only in capitalization or surrounding whitespace as exact matches.',
       '',
-      'Guidelines:',
-      '1. Exact match = 100%.',
-      '2. Synonyms and equivalent terms = high score. Examples: Water = H2O; Car = Automobile; CPU = Central Processing Unit.',
-      '3. Minor spelling mistakes should not receive zero. Examples: water, watr, waetr. Deduct only a small amount.',
-      '4. Grammar mistakes should have minimal penalty if the meaning is correct.',
-      '5. Different wording with the same meaning should receive high marks. Example: "The Earth revolves around the Sun." and "The Sun is orbited by the Earth." have the same meaning.',
-      '6. Partially correct answers should receive proportional credit.',
-      '7. Completely incorrect answers should receive zero.',
-      '8. If an answer contains both correct and incorrect information, reduce marks appropriately.',
+      'STRICT HTML & CODE GRADING GUIDELINES:',
+      '1. Exact match with all required tags and content = 100% (1.0 / 1.0).',
+      '2. HTML Structural Validation Rule: For HTML and programming SHORT_ANSWER questions, compare the student answer structure directly against correct_key. Do NOT award 1/1 if any structural tag present in correct_key (such as <!DOCTYPE html>, <html>, <head>, <title>, <body>, <h1>, <p>) is missing from the student answer.',
+      '3. Missing Tag Deductions:',
+      '   - One required structural tag missing (e.g. missing <head> or missing <title>): Award at most 0.8/1. Reason MUST state the missing tag (e.g., "Q3: 0.8/1 - Correct content, but missing <head> tag").',
+      '   - Multiple required structural tags missing (e.g. missing <head> AND <title>): Award at most 0.7/1 (e.g., "Q4: 0.7/1 - Correct heading and paragraph, but missing <head> and <title> structure").',
+      '   - Significant structural omissions or missing body/html: Award 0.5/1 or lower.',
+      '4. Synonyms and equivalent terms for concepts = high score (e.g. Water = H2O; CPU = Central Processing Unit).',
+      '5. Minor spelling mistakes = small deduction (0.9/1).',
+      '6. Grammar mistakes = minimal penalty if meaning is correct.',
+      '7. FIB Questions: Exact match or case/whitespace variation = 1/1 (e.g., "Q5: 1/1 - Exact match").',
+      '8. Completely incorrect answers = 0/1.',
       '9. Never hallucinate information.',
-      '10. Never modify submission_id, student_id, question_id, quiz_id, or question_index.',
+      '10. Never modify submission_id, student_name, quiz_code, question_text, or question_index.',
       '',
       'Output requirements:',
       '11. Output MUST be valid CSV only.',
@@ -1278,7 +1282,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       'The completed CSV MUST have exactly these columns in this order:',
       'submission_id,score,ai_reasoning',
       '',
-      'Return exactly one row per submission_id. Calculate score as the total for all questions: retain each MCQ result, grade each FIB/SHORT_ANSWER question from 0.0 to 1.0, then round the final total to the nearest whole number. score must be a whole number from 0 to total_questions.',
+      'Return exactly one row per submission_id. Calculate score as the total for all questions: retain each MCQ result from CSV (1 if student_answer matches correct_key, 0 if mismatch), grade each FIB/SHORT_ANSWER question from 0.0 to 1.0, then round the final total to the nearest whole number. score must be a whole number from 0 to total_questions.',
       'ai_reasoning must list only FIB/SHORT_ANSWER questions in this exact format: Q{question_index}: {earned}/1 - {brief reason}; Q{question_index}: {earned}/1 - {brief reason}. Do not mention MCQ questions. If there are no FIB/SHORT_ANSWER questions, leave ai_reasoning empty. If it contains commas, wrap the field in double quotes.',
       'Output only the completed CSV: no markdown, code fences, headings, notes, or text before or after it.',
       '',
@@ -1767,12 +1771,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       const correctedCount = calculateManualScore(currentCsvData.questions, gradeEntries);
-      const { error: updateResultError } = await window.supabaseClient
-        .from('student_results')
-        .update({ score: correctedCount })
-        .eq('id', currentCsvData.submissionId);
-
-      if (updateResultError) throw updateResultError;
+      const manualSnapshot = Array.isArray(resultRow?.response_snapshot) ? [...resultRow.response_snapshot] : [];
+      await executeGradingUpdate(currentCsvData.submissionId, correctedCount, manualSnapshot, []);
 
       // Success!
       window.showToast(`Successfully updated marks for ${currentCsvData.studentName}!`, 'success');
@@ -1793,6 +1793,93 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnSubmitCsvGrade.disabled = false;
     }
   });
+
+  async function executeGradingUpdate(submissionId, expectedScore, updatedSnapshot = [], studentResponses = []) {
+    const cleanId = String(submissionId || '').trim();
+    if (!cleanId) {
+      throw new Error('Missing submission ID for grading update.');
+    }
+
+    if (!window.supabaseClient) {
+      throw new Error('Supabase client is not initialized.');
+    }
+
+    // G. Execute UPDATE on student_results
+    const updatePayload = { score: expectedScore };
+    if (updatedSnapshot && updatedSnapshot.length > 0) {
+      updatePayload.response_snapshot = updatedSnapshot;
+    }
+
+    let { error: updateError } = await window.supabaseClient
+      .from('student_results')
+      .update(updatePayload)
+      .eq('id', cleanId);
+
+    if (updateError && isMissingSchemaItem(updateError, 'response_snapshot')) {
+      ({ error: updateError } = await window.supabaseClient
+        .from('student_results')
+        .update({ score: expectedScore })
+        .eq('id', cleanId));
+    }
+
+    // Step H: Immediately re-query database row
+    const afterClientRow = await fetchResultRow(cleanId);
+    let persistedScore = afterClientRow ? Number(afterClientRow.score) : null;
+
+    // If client update failed or was silently rejected by RLS (0 rows updated), trigger server fallback
+    if (updateError || persistedScore !== Number(expectedScore)) {
+      console.warn(`Client update error/mismatch (expected ${expectedScore}, found ${persistedScore}). Invoking backend fallback API...`, updateError);
+
+      const session = (await window.supabaseClient.auth.getSession())?.data?.session;
+      const token = session?.access_token;
+
+      if (!token) {
+        throw new Error('Authentication required: Please sign in again.');
+      }
+
+      const response = await fetch('/api/teacher/grade-submission', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-supabase-url': window.SUPABASE_URL || '',
+          'x-supabase-key': window.SUPABASE_ANON_KEY || ''
+        },
+        body: JSON.stringify({
+          submissionId: cleanId,
+          score: expectedScore,
+          responseSnapshot: updatedSnapshot,
+          studentResponses: studentResponses
+        })
+      });
+
+      if (!response.ok) {
+        const errPayload = await response.json().catch(() => ({}));
+        throw new Error(errPayload.error || `Server update failed with status ${response.status}`);
+      }
+    }
+
+    // Step I: Fetch result row after update/fallback
+    const finalRow = await fetchResultRow(cleanId);
+    if (!finalRow || Number(finalRow.score) !== Number(expectedScore)) {
+      throw new Error(`Score persistence verification failed. Database returned ${finalRow?.score ?? 'null'}, expected ${expectedScore}.`);
+    }
+
+    // Step J: Synchronize local in-memory dataset
+    const localResult = results.find((r) => String(r.id) === cleanId);
+    if (localResult) {
+      localResult.score = expectedScore;
+      if (updatedSnapshot && updatedSnapshot.length > 0) {
+        localResult.response_snapshot = updatedSnapshot;
+      }
+    }
+
+    // Step K: Update dashboard metrics and re-render table
+    updateMetrics(getCurrentlyFilteredResults());
+    renderTable(getCurrentlyFilteredResults());
+
+    return finalRow;
+  }
 
   function parseManualGradeEntries(input, questionCount) {
     const entries = new Map();
@@ -1946,6 +2033,52 @@ document.addEventListener('DOMContentLoaded', async () => {
     const questionsHtml = details.questions.map((question) => {
       const hasAssignedMarks = question.assignedMarks !== '' && question.assignedMarks != null;
       const aiProposedMark = getAiProposedMark(aiReasoning, question.questionIndex, question.questionType);
+      const isCorrect = isCsvQuestionCorrect(question);
+      const qType = String(question.questionType || '').toUpperCase();
+
+      // Determine color and status badge based on correctness and question type
+      let studentBoxClass = 'rounded-md bg-emerald-50 p-2 border border-emerald-200';
+      let studentTextClass = 'text-emerald-950';
+      let studentLabelClass = 'text-emerald-800';
+      let statusBadge = '';
+
+      if (qType === 'MCQ') {
+        if (isCorrect) {
+          studentBoxClass = 'rounded-md bg-emerald-50 p-2 border border-emerald-200';
+          studentTextClass = 'text-emerald-950';
+          studentLabelClass = 'text-emerald-800';
+          statusBadge = '<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">Correct (1 / 1)</span>';
+        } else {
+          studentBoxClass = 'rounded-md bg-rose-50 p-2 border border-rose-200';
+          studentTextClass = 'text-rose-950';
+          studentLabelClass = 'text-rose-800';
+          statusBadge = '<span class="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Incorrect (0 / 1)</span>';
+        }
+      } else if (aiProposedMark) {
+        const markMatch = String(aiProposedMark).match(/^([0-9.]+)/);
+        const earned = markMatch ? parseFloat(markMatch[1]) : null;
+        if (earned !== null && !isNaN(earned)) {
+          if (earned >= 1.0) {
+            studentBoxClass = 'rounded-md bg-emerald-50 p-2 border border-emerald-200';
+            studentTextClass = 'text-emerald-950';
+            studentLabelClass = 'text-emerald-800';
+            statusBadge = `<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">AI: ${escapeHtml(aiProposedMark)}</span>`;
+          } else if (earned > 0) {
+            studentBoxClass = 'rounded-md bg-amber-50 p-2 border border-amber-200';
+            studentTextClass = 'text-amber-950';
+            studentLabelClass = 'text-amber-800';
+            statusBadge = `<span class="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">AI (Partial): ${escapeHtml(aiProposedMark)}</span>`;
+          } else {
+            studentBoxClass = 'rounded-md bg-rose-50 p-2 border border-rose-200';
+            studentTextClass = 'text-rose-950';
+            studentLabelClass = 'text-rose-800';
+            statusBadge = `<span class="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">AI (0 / 1): ${escapeHtml(aiProposedMark)}</span>`;
+          }
+        } else {
+          statusBadge = `<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">AI: ${escapeHtml(aiProposedMark)}</span>`;
+        }
+      }
+
       return `
         <div class="rounded-lg border border-slate-200 bg-white p-3 space-y-2">
           <div class="flex items-start justify-between gap-3">
@@ -1955,15 +2088,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">
               <span class="rounded-full bg-violet-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700">${escapeHtml(question.questionType || '')}</span>
-              ${aiProposedMark ? `<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">AI: ${escapeHtml(aiProposedMark)}</span>` : ''}
+              ${statusBadge}
             </div>
           </div>
           <div class="grid gap-2 sm:grid-cols-2">
-            <div class="rounded-md bg-emerald-50 p-2">
-              <p class="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Student Answer</p>
-              <p class="mt-1 text-xs text-emerald-950">${question.studentAnswer ? escapeHtml(question.studentAnswer) : '<em class="text-emerald-700">No answer</em>'}</p>
+            <div class="${studentBoxClass}">
+              <p class="text-[10px] font-semibold uppercase tracking-wide ${studentLabelClass}">Student Answer</p>
+              <p class="mt-1 text-xs ${studentTextClass}">${question.studentAnswer ? escapeHtml(question.studentAnswer) : '<em class="text-slate-400">No answer</em>'}</p>
             </div>
-            <div class="rounded-md bg-sky-50 p-2">
+            <div class="rounded-md bg-sky-50 p-2 border border-sky-200">
               <p class="text-[10px] font-semibold uppercase tracking-wide text-sky-800">Correct Answer</p>
               <p class="mt-1 text-xs text-sky-950">${escapeHtml(question.correctKey || '')}</p>
             </div>
@@ -2018,17 +2151,36 @@ document.addEventListener('DOMContentLoaded', async () => {
       const questionCount = details?.questions?.length || 0;
       const totalQuestions = details?.totalQuestions || questionCount || '?';
 
+      // Compute true verified score: Actual MCQs + AI subjective marks
+      let displayScore = score;
+      if (details && Array.isArray(details.questions) && details.questions.length > 0) {
+        let computedPreview = 0;
+        details.questions.forEach((q) => {
+          const qType = String(q.questionType || 'MCQ').toUpperCase();
+          if (qType === 'MCQ') {
+            if (isCsvQuestionCorrect(q)) computedPreview += 1;
+          } else {
+            const aiMarkStr = getAiProposedMark(aiReasoning, q.questionIndex, q.questionType);
+            const numMatch = aiMarkStr ? aiMarkStr.match(/^([0-9.]+)/) : null;
+            if (numMatch) {
+              computedPreview += parseFloat(numMatch[1]);
+            }
+          }
+        });
+        displayScore = Math.round(computedPreview);
+      }
+
       return `
-        <details class="rounded-xl border border-slate-200 bg-white">
+        <details class="rounded-xl border border-slate-200 bg-white" open>
           <summary class="flex cursor-pointer items-center justify-between gap-3 px-3 py-3 text-xs">
             <div class="min-w-0">
               <p class="font-semibold text-slate-900">${escapeHtml(studentName)} <span class="font-normal text-slate-500">• ${escapeHtml(quizTitle)}</span></p>
               <p class="mt-1 text-[11px] text-slate-500">${questionCount} question${questionCount === 1 ? '' : 's'} · ${escapeHtml(id)}</p>
             </div>
-            <span class="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">AI: ${escapeHtml(String(score))} / ${escapeHtml(String(totalQuestions))}</span>
+            <span class="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 font-semibold text-violet-700">AI: ${escapeHtml(String(displayScore))} / ${escapeHtml(String(totalQuestions))}</span>
           </summary>
           <div class="border-t border-slate-100 p-3">
-            ${renderAiGradeReviewDetails(details, score, aiReasoning)}
+            ${renderAiGradeReviewDetails(details, displayScore, aiReasoning)}
           </div>
         </details>
       `;
@@ -2178,55 +2330,120 @@ document.addEventListener('DOMContentLoaded', async () => {
         throw new Error('Validation failed');
       }
 
+      const computedScoresMap = new Map();
+
       // Perform bulk update with question-level responses and score
       const updatePromises = validGrades.map(async (grade) => {
         const submissionId = grade.id;
-        const resultRow = await fetchResultRow(submissionId);
-        const quizId = resultRow?.quiz_id;
-        const resolvedStudentName = resultRow?.student_name || '';
+        const resultRow = results.find((r) => String(r.id) === String(submissionId));
+        const quizId = resultRow?.quiz_id || resultRow?.quizzes?.id;
+        const studentResponsesList = [];
+        const updatedSnapshot = Array.isArray(resultRow?.response_snapshot) ? [...resultRow.response_snapshot] : [];
+        let computedTotalScore = grade.score;
 
-        // 1. Fetch questions and existing responses for this submission
         if (quizId) {
+          computedTotalScore = 0;
+          const resolvedStudentName = resultRow?.student_name || 'Unknown Student';
+
+          // Fetch student_responses for this submission or quiz
+          let { data: existingResponses } = await window.supabaseClient
+            .from('student_responses')
+            .select('*')
+            .eq('student_result_id', submissionId);
+
+          if ((!existingResponses || existingResponses.length === 0) && quizId && resolvedStudentName) {
+            const fallbackResp = await window.supabaseClient
+              .from('student_responses')
+              .select('*')
+              .eq('quiz_id', quizId)
+              .eq('student_name', resolvedStudentName);
+            existingResponses = fallbackResp.data;
+          }
+
+          const responseMap = new Map();
+          (existingResponses || []).forEach((resp) => {
+            const key = (resp.question_text || '').trim().toLowerCase();
+            if (key && !responseMap.has(key)) {
+              responseMap.set(key, resp);
+            }
+          });
+
+          // Fetch quiz questions
           const { data: quizQuestions } = await window.supabaseClient
             .from('quiz_questions')
             .select('*, question_bank(*)')
             .eq('quiz_id', quizId);
 
-          const existingResponses = await fetchStudentResponses(submissionId, quizId, resolvedStudentName);
-          const responseMap = new Map();
-          existingResponses.forEach((resp) => {
-            if (resp.question_text) {
-              responseMap.set(resp.question_text.trim().toLowerCase(), resp);
-            }
-          });
-
-          // 2. Parse per-question marks from ai_reasoning (e.g. Q1: 1/1, Q2: 0/1)
           const questions = (quizQuestions || []).map((qq) => qq.question_bank).filter(Boolean);
-          const updatedSnapshot = Array.isArray(resultRow?.response_snapshot) ? [...resultRow.response_snapshot] : [];
-
-          for (let i = 0; i < questions.length; i++) {
-            const q = questions[i];
-            const qIndex = i + 1;
-            const qType = q.type || 'MCQ';
-            const proposedMarkStr = getAiProposedMark(grade.ai_reasoning, qIndex, qType);
-
-            let marksToAssign = null;
-            if (proposedMarkStr) {
-              const numMatch = proposedMarkStr.match(/^([0-9.]+)/);
-              if (numMatch) marksToAssign = parseFloat(numMatch[1]);
-            } else if (qType !== 'MCQ' && grade.score > 0 && questions.length === 1) {
-              marksToAssign = grade.score;
+          const uniqueQList = [];
+          const seenQIds = new Set();
+          for (const q of questions) {
+            if (q && q.id && !seenQIds.has(q.id)) {
+              seenQIds.add(q.id);
+              uniqueQList.push(q);
             }
+          }
+
+          for (let i = 0; i < uniqueQList.length; i++) {
+            const q = uniqueQList[i];
+            const qIndex = i + 1;
+            const qType = String(q.type || 'MCQ').toUpperCase();
+            const proposedMarkStr = getAiProposedMark(grade.ai_reasoning, qIndex, qType);
 
             const qTextKey = (q.question_text || '').trim().toLowerCase();
             const existingResp = responseMap.get(qTextKey);
+
+            let snapItem = updatedSnapshot.find(s =>
+              (s.question_text || '').trim().toLowerCase() === qTextKey ||
+              (s.question_bank_id && q.id && String(s.question_bank_id) === String(q.id))
+            );
+
+            const studentAns = existingResp?.student_answer || snapItem?.student_answer || '';
+            const isCorrectMcq = isCsvQuestionCorrect({ studentAnswer: studentAns, correctKey: q.correct_option });
+
+            let marksToAssign = null;
+            let reasoningToAssign = null;
+
+            if (qType === 'MCQ') {
+              marksToAssign = isCorrectMcq ? 1 : 0;
+              reasoningToAssign = isCorrectMcq ? 'Correct MCQ answer' : 'Incorrect MCQ answer';
+              computedTotalScore += marksToAssign;
+            } else if (proposedMarkStr) {
+              const numMatch = proposedMarkStr.match(/^([0-9.]+)/);
+              if (numMatch) marksToAssign = parseFloat(numMatch[1]);
+              reasoningToAssign = grade.ai_reasoning || null;
+              computedTotalScore += (marksToAssign || 0);
+            } else {
+              marksToAssign = 0;
+              reasoningToAssign = grade.ai_reasoning || null;
+            }
+
+            if (!snapItem) {
+              snapItem = {
+                quiz_id: quizId,
+                student_result_id: submissionId,
+                student_name: resolvedStudentName,
+                question_text: q.question_text || '',
+                question_bank_id: q.id,
+                student_answer: studentAns,
+                question_type: qType,
+                question_order: qIndex,
+                marks_assigned: marksToAssign,
+                ai_reasoning: reasoningToAssign,
+              };
+              updatedSnapshot.push(snapItem);
+            } else {
+              snapItem.marks_assigned = marksToAssign;
+              snapItem.ai_reasoning = reasoningToAssign;
+            }
 
             if (existingResp) {
               await window.supabaseClient
                 .from('student_responses')
                 .update({
+                  student_result_id: submissionId,
                   marks_assigned: marksToAssign,
-                  ai_reasoning: grade.ai_reasoning || null
+                  ai_reasoning: reasoningToAssign
                 })
                 .eq('id', existingResp.id);
             } else if (marksToAssign !== null) {
@@ -2238,61 +2455,49 @@ document.addEventListener('DOMContentLoaded', async () => {
                   student_name: resolvedStudentName,
                   question_text: q.question_text || '',
                   question_bank_id: q.id,
-                  student_answer: '',
+                  student_answer: studentAns,
                   question_type: qType,
                   marks_assigned: marksToAssign,
-                  ai_reasoning: grade.ai_reasoning || null
+                  ai_reasoning: reasoningToAssign
                 });
             }
 
-            // Also update in-memory snapshot if present
-            if (updatedSnapshot.length > 0) {
-              const snapItem = updatedSnapshot.find(s => (s.question_text || '').trim().toLowerCase() === qTextKey);
-              if (snapItem) {
-                snapItem.marks_assigned = marksToAssign;
-                snapItem.ai_reasoning = grade.ai_reasoning || null;
-              }
-            }
+            studentResponsesList.push({
+              id: existingResp?.id || null,
+              question_text: q.question_text || '',
+              question_bank_id: q.id || null,
+              student_answer: studentAns,
+              question_type: qType,
+              marks_assigned: marksToAssign,
+              ai_reasoning: reasoningToAssign
+            });
           }
-
-          // 3. Update the overall score and snapshot in student_results
-          const updatePayload = { score: grade.score };
-          if (updatedSnapshot.length > 0) {
-            updatePayload.response_snapshot = updatedSnapshot;
-          }
-
-          let { error: updateError } = await window.supabaseClient
-            .from('student_results')
-            .update(updatePayload)
-            .eq('id', submissionId);
-
-          if (updateError && isMissingSchemaItem(updateError, 'response_snapshot')) {
-            const { error: retryError } = await window.supabaseClient
-              .from('student_results')
-              .update({ score: grade.score })
-              .eq('id', submissionId);
-            updateError = retryError;
-          }
-
-          if (updateError) throw updateError;
-        } else {
-          // Direct score update fallback if no quizId
-          const { error } = await window.supabaseClient
-            .from('student_results')
-            .update({ score: grade.score })
-            .eq('id', submissionId);
-
-          if (error) throw error;
         }
+
+        // Use rounded computed score from actual verified MCQs + AI marks
+        const finalScoreToSave = Math.round(computedTotalScore);
+        computedScoresMap.set(submissionId, finalScoreToSave);
+        await executeGradingUpdate(submissionId, finalScoreToSave, updatedSnapshot, studentResponsesList);
       });
 
       await Promise.all(updatePromises);
+
+      // Immediately synchronize local in-memory dataset & re-render table before and during reload
+      validGrades.forEach((grade) => {
+        const localRes = results.find((r) => String(r.id) === String(grade.id));
+        if (localRes) {
+          localRes.score = computedScoresMap.get(grade.id) ?? grade.score;
+        }
+      });
+      updateMetrics(getCurrentlyFilteredResults());
+      renderTable(getCurrentlyFilteredResults());
 
       window.showToast(`Successfully imported ${validGrades.length} grades!`, 'success');
 
       // Reset everything
       aiGradesPasteInput.value = '';
       aiGradesReviewContainer.classList.add('hidden');
+      aiGradesReviewTable.innerHTML = '';
       aiGradesData = [];
       aiGradesPreviewSource = '';
 
@@ -2301,7 +2506,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       btnImportAiGrades.classList.add('bg-purple-600', 'hover:bg-purple-700');
       btnImportAiGrades.disabled = false;
 
-      loadReportData(); // Reload data to update UI
+      // Reload fresh data from database to ensure complete synchronization
+      await loadReportData();
     } catch (err) {
       console.error('Error updating AI grades:', err);
       window.showToast(err.message || 'Failed to update grades', 'error');

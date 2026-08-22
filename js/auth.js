@@ -4,12 +4,14 @@ window.initSupabaseFromStorage = function() {
   const storedUrl = localStorage.getItem('SUPABASE_URL');
   const storedKey = localStorage.getItem('SUPABASE_ANON_KEY');
 
-  const url = (storedUrl || window.SUPABASE_URL || '').trim();
+  let url = (storedUrl || window.SUPABASE_URL || '').trim();
+  url = url.replace(/\/rest\/v1\/?$/i, '').replace(/\/auth\/v1\/?$/i, '').replace(/\/+$/, '');
   const key = (storedKey || window.SUPABASE_ANON_KEY || '').trim();
 
   if (url && key && window.supabase && typeof window.supabase.createClient === 'function') {
     window.SUPABASE_URL = url;
     window.SUPABASE_ANON_KEY = key;
+    localStorage.setItem('SUPABASE_URL', url);
     window.supabaseClient = window.supabase.createClient(url, key);
     return window.supabaseClient;
   }
@@ -22,6 +24,13 @@ window.initSupabaseFromStorage();
 // Auto-fetch default configuration if not yet configured in localStorage
 window.__autoInitPromise = (async function autoInitConfig() {
   if (!localStorage.getItem('SUPABASE_URL') || !localStorage.getItem('SUPABASE_ANON_KEY')) {
+    if (window.DEFAULT_SUPABASE_URL && window.DEFAULT_SUPABASE_ANON_KEY) {
+      window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL;
+      window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY;
+      localStorage.setItem('SUPABASE_URL', window.DEFAULT_SUPABASE_URL);
+      localStorage.setItem('SUPABASE_ANON_KEY', window.DEFAULT_SUPABASE_ANON_KEY);
+      return window.initSupabaseFromStorage();
+    }
     try {
       const defaultPin = localStorage.getItem('SUPABASE_CONFIG_PIN') || '012345';
       if (typeof window.fetchSupabaseConfig === 'function') {
@@ -65,12 +74,6 @@ window.fetchSupabaseConfig = async function(pin, customServerUrl = '') {
     candidateHosts.push(customHost);
   }
 
-  // Production nameserver API (Render). Tried when no custom override is set.
-  const DEFAULT_NAMESERVER_URL = 'https://expressjs-api-intranet-nameserver.onrender.com';
-  if (!customHost) {
-    candidateHosts.push(DEFAULT_NAMESERVER_URL);
-  }
-
   // If page is hosted on a domain (not file://), try same-origin relative endpoint
   if (window.location && window.location.origin && window.location.origin !== 'null' && !window.location.origin.includes('file://')) {
     candidateHosts.push(window.location.origin);
@@ -79,6 +82,12 @@ window.fetchSupabaseConfig = async function(pin, customServerUrl = '') {
   // Always include localhost:3000 as a candidate if on HTTP or local development
   if (window.location && (window.location.protocol === 'http:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
     candidateHosts.push('http://localhost:3000');
+  }
+
+  // Production nameserver API (Render). Tried as fallback when no custom override is set.
+  const DEFAULT_NAMESERVER_URL = 'https://expressjs-api-intranet-nameserver.onrender.com';
+  if (!customHost) {
+    candidateHosts.push(DEFAULT_NAMESERVER_URL);
   }
 
   // Unique list of hosts
@@ -144,7 +153,8 @@ window.fetchSupabaseConfig = async function(pin, customServerUrl = '') {
     throw new Error('Invalid configuration structure received from server.');
   }
 
-  const url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url || window.DEFAULT_SUPABASE_URL;
+  let url = result.config?.url || result.config?.projectUrl || result.config?.supabaseUrl || result.config?.project_url || window.DEFAULT_SUPABASE_URL;
+  url = String(url || '').trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/auth\/v1\/?$/i, '').replace(/\/+$/, '');
   const anonKey = result.config?.anonKey || result.config?.apiKey || result.config?.supabaseAnonKey || result.config?.anon_key || window.DEFAULT_SUPABASE_ANON_KEY;
 
   if (!url || !anonKey) {
@@ -180,6 +190,11 @@ window.resetSupabaseConfig = function() {
   localStorage.removeItem('SUPABASE_CONFIG_NAME');
   localStorage.removeItem('SUPABASE_CONFIG_PIN');
   localStorage.removeItem('SUPABASE_CONFIG_UUID');
+
+  if (window.DEFAULT_SUPABASE_URL && window.DEFAULT_SUPABASE_ANON_KEY) {
+    localStorage.setItem('SUPABASE_URL', window.DEFAULT_SUPABASE_URL);
+    localStorage.setItem('SUPABASE_ANON_KEY', window.DEFAULT_SUPABASE_ANON_KEY);
+  }
 
   window.SUPABASE_URL = window.DEFAULT_SUPABASE_URL || "";
   window.SUPABASE_ANON_KEY = window.DEFAULT_SUPABASE_ANON_KEY || "";

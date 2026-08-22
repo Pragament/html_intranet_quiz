@@ -484,10 +484,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     );
   }
 
+  function normalizeAnswerString(str) {
+    if (!str) return '';
+    return String(str)
+      .trim()
+      .toLowerCase()
+      .replace(/[.,/#!$%^&*;:{}=\-_`~()?"']/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
   function isAnswerCorrect(question, studentAnswer) {
-    const studentValue = String(studentAnswer || '').trim();
-    const correctValue = String(question.correct_option || '').trim();
-    return Boolean(studentValue && correctValue && studentValue.toUpperCase() === correctValue.toUpperCase());
+    const rawStudent = String(studentAnswer || '').trim();
+    const rawCorrect = String(question.correct_option || '').trim();
+    if (!rawStudent || !rawCorrect) return false;
+
+    const qType = (question.type || 'MCQ').trim().toUpperCase();
+    if (qType === 'MCQ') {
+      const studentLetter = rawStudent.charAt(0).toUpperCase();
+      const correctLetter = rawCorrect.charAt(0).toUpperCase();
+      return Boolean(studentLetter && correctLetter && studentLetter === correctLetter);
+    }
+
+    const normStudent = normalizeAnswerString(rawStudent);
+    const normCorrect = normalizeAnswerString(rawCorrect);
+    return Boolean(normStudent && normCorrect && normStudent === normCorrect);
   }
 
   function buildResponseSnapshot() {
@@ -527,73 +547,62 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function insertStudentResult(basePayload, responseSnapshot) {
-    let savedWithSnapshot = true;
-    let data = null;
-    let error = null;
+    if (!window.supabaseClient) {
+      throw new Error('Supabase database client is not initialized. Check your connection configuration.');
+    }
 
-    const res1 = await window.supabaseClient
+    // Insert student_results with snapshot and return the created record with its generated UUID
+    let { data, error } = await window.supabaseClient
       .from('student_results')
       .insert({ ...basePayload, response_snapshot: responseSnapshot })
-      .select();
+      .select('id, quiz_id, student_name, score, total_questions, completed_at, response_snapshot')
+      .single();
 
-    data = res1.data;
-    error = res1.error;
-
+    // Fallback if response_snapshot column is missing on an older database schema
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
-      savedWithSnapshot = false;
-      const res2 = await window.supabaseClient
+      console.warn('response_snapshot column missing, inserting standard student_results record...');
+      const fallbackRes = await window.supabaseClient
         .from('student_results')
         .insert(basePayload)
-        .select();
-      data = res2.data;
-      error = res2.error;
+        .select('id, quiz_id, student_name, score, total_questions, completed_at')
+        .single();
+      data = fallbackRes.data;
+      error = fallbackRes.error;
     }
 
-    // Fallback if RLS policy blocks .select() or restricts anon select on student_results
-    if (error && (error.message?.includes('row-level security') || error.code === '42501' || error.status === 403)) {
-      console.warn('RLS policy error on .select(), retrying insert without .select():', error);
-      const res3 = await window.supabaseClient
-        .from('student_results')
-        .insert({ ...basePayload, response_snapshot: responseSnapshot });
-
-      if (!res3.error) {
-        return { ...basePayload, _savedWithSnapshot: true };
-      }
-
-      const res4 = await window.supabaseClient
-        .from('student_results')
-        .insert(basePayload);
-
-      if (!res4.error) {
-        return { ...basePayload, _savedWithSnapshot: false };
-      }
-      error = res4.error;
+    if (error) {
+      console.error('Supabase error inserting student_results:', error);
+      throw new Error(`Failed to save quiz results: ${error.message || JSON.stringify(error)}`);
     }
 
-    if (error) throw error;
+    if (!data || !data.id) {
+      throw new Error('Student result was not created: Database returned no valid submission record ID.');
+    }
 
-    const row = data && data.length > 0 ? data[0] : null;
-    if (row) row._savedWithSnapshot = savedWithSnapshot;
-    return row || { ...basePayload, _savedWithSnapshot: savedWithSnapshot };
+    return data;
   }
 
   async function insertStudentResponses(studentResultId, responseSnapshot) {
-    if (!responseSnapshot.length) return false;
+    if (!responseSnapshot || !responseSnapshot.length) return true;
+    if (!studentResultId) {
+      console.warn('insertStudentResponses skipped: studentResultId is missing');
+      return false;
+    }
 
     const responsesPayload = responseSnapshot.map((resp) => ({
-      quiz_id: resp.quiz_id,
-      student_result_id: studentResultId || null,
+      quiz_id: quiz.id,
+      student_result_id: studentResultId,
       student_name: studentName,
-      question_text: resp.question_text,
-      question_bank_id: resp.question_bank_id,
-      student_answer: resp.student_answer,
-      question_type: resp.question_type,
+      question_text: resp.question_text || '',
+      question_bank_id: resp.question_bank_id || null,
+      student_answer: resp.student_answer || '',
+      question_type: resp.question_type || 'MCQ',
       marks_assigned: null,
       ai_reasoning: null,
     }));
 
     window.lastSentResponsesPayload = responsesPayload;
-    console.log('FULL RESPONSES PAYLOAD BEING SENT TO SUPABASE:', responsesPayload);
+    console.log('Inserting student responses to Supabase:', responsesPayload);
 
     const { error } = await window.supabaseClient
       .from('student_responses')
@@ -601,10 +610,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (error) {
       if (isMissingSchemaItem(error, 'student_responses')) {
-        console.warn('student_responses table not found; response_snapshot will be used when available:', error);
+        console.warn('student_responses table not found; responses are preserved in response_snapshot:', error);
         return false;
       }
-      console.warn('Could not insert student responses; response_snapshot will be used when available:', error);
+      console.warn('Could not insert student responses into table:', error);
       return false;
     }
 
@@ -646,7 +655,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const finalScore = window.__finalScore;
       const responseSnapshot = window.__responseSnapshot;
 
-      // 2. Insert the result row.
+      // 1. Insert the student_results row and obtain the verified database ID
       const resultRow = await insertStudentResult({
         quiz_id: quiz.id,
         student_name: studentName,
@@ -654,13 +663,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         total_questions: questions.length,
       }, responseSnapshot);
 
-      saveLocalResponseSnapshot(resultRow?.id, responseSnapshot);
+      const resultId = resultRow.id;
+      console.log('✅ Student result created with verified ID:', resultId);
 
-      // 3. Keep the row-per-answer table in sync for grading workflows.
-      const responsesSaved = await insertStudentResponses(resultRow?.id, responseSnapshot);
-      if (!resultRow?._savedWithSnapshot && !responsesSaved) {
-        throw new Error('Your score was saved, but the database did not save your answers.');
-      }
+      // Save local response snapshot keyed by verified result ID
+      saveLocalResponseSnapshot(resultId, responseSnapshot);
+
+      // 2. Insert row-per-answer responses linked to this resultId
+      await insertStudentResponses(resultId, responseSnapshot);
+
       // Build detailed question review snapshot for student review
       const quizReviewData = questions.map((q, idx) => {
         const studentAns = answers[q.id] || '';
@@ -683,6 +694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       // 3. Save to sessionStorage
+      sessionStorage.setItem('lastResultId', resultId);
       sessionStorage.setItem('lastScore', finalScore.toString());
       sessionStorage.setItem('lastTotal', questions.length.toString());
       sessionStorage.setItem('lastTitle', quiz.title);
@@ -690,7 +702,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // Redirect to results
       setTimeout(() => {
-        window.location.href = `result?code=${quiz.access_code}`;
+        window.location.href = `result?code=${encodeURIComponent(quiz.access_code)}`;
       }, 800);
     } catch (err) {
       console.error('Error submitting quiz results:', err);
