@@ -179,6 +179,34 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
+      // 1b. Check if student has already attempted this quiz
+      if (studentName && studentName !== 'Candidate') {
+        const { data: existingResults, error: rError } = await window.supabaseClient
+          .from('student_results')
+          .select('id')
+          .eq('quiz_id', quizData.id)
+          .ilike('student_name', studentName.trim());
+
+        if (existingResults && existingResults.length > 0) {
+          if (loaderArea) {
+            loaderArea.innerHTML = `
+              <div class="bg-white border border-slate-200 shadow-md rounded-2xl p-8 max-w-md w-full text-center animate-slide-up">
+                <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900 mb-2">Quiz Already Attempted</h3>
+                <p class="text-sm text-slate-600 mb-6">Student "<span class="font-bold text-slate-900">${studentName}</span>" has already submitted this quiz. Multiple attempts under the same name are not permitted.</p>
+                <a href="index.html" class="inline-flex items-center justify-center w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl transition cursor-pointer">
+                  Back to Home
+                </a>
+              </div>
+            `;
+            if (window.lucide) window.lucide.createIcons();
+          }
+          return;
+        }
+      }
+
       quiz = quizData;
       quizHeaderTitle.textContent = quiz.title;
       quizCodeLabel.textContent = `Access Code: ${quiz.access_code}`;
