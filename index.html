@@ -134,7 +134,7 @@
         });
       }
 
-      function handleStartQuiz(e) {
+      async function handleStartQuiz(e) {
         if (e) {
           e.preventDefault();
           if (typeof e.stopPropagation === 'function') e.stopPropagation();
@@ -154,6 +154,50 @@
         }
 
         if (submitBtn) submitBtn.disabled = true;
+        if (btnText) btnText.textContent = 'Checking Access...';
+
+        try {
+          if (typeof window.ensureSupabaseClient === 'function') {
+            await window.ensureSupabaseClient();
+          }
+
+          if (window.supabaseClient) {
+            // 1. Verify quiz exists
+            const { data: quizData, error: qError } = await window.supabaseClient
+              .from('quizzes')
+              .select('id, title')
+              .ilike('access_code', accessCode)
+              .maybeSingle();
+
+            if (qError) throw qError;
+
+            if (!quizData) {
+              window.showToast(`Quiz with code "${accessCode}" not found.`, 'error');
+              if (submitBtn) submitBtn.disabled = false;
+              if (btnText) btnText.textContent = 'Start Quiz';
+              return false;
+            }
+
+            // 2. Check if student name has already attempted this quiz
+            const { data: existingResults, error: rError } = await window.supabaseClient
+              .from('student_results')
+              .select('id')
+              .eq('quiz_id', quizData.id)
+              .ilike('student_name', studentName);
+
+            if (rError) throw rError;
+
+            if (existingResults && existingResults.length > 0) {
+              window.showToast(`Student "${studentName}" has already attempted this quiz. Student names must be unique.`, 'error');
+              if (submitBtn) submitBtn.disabled = false;
+              if (btnText) btnText.textContent = 'Start Quiz';
+              return false;
+            }
+          }
+        } catch (err) {
+          console.warn('Pre-check error:', err);
+        }
+
         if (btnText) btnText.textContent = 'Entering Lobby...';
 
         // Store student name in sessionStorage and localStorage
