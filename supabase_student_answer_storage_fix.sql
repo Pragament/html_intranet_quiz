@@ -70,10 +70,37 @@ create policy "Public can select student_results"
   on public.student_results for select
   using (true);
 
+-- Scoped RLS policy: Teachers can update student results ONLY for their own quizzes
 drop policy if exists "Authenticated users can manage student_results" on public.student_results;
-create policy "Authenticated users can manage student_results"
-  on public.student_results for all
-  using (auth.role() = 'authenticated');
+drop policy if exists "Teachers can update student results for their quizzes" on public.student_results;
+
+create policy "Teachers can update student results for their quizzes"
+  on public.student_results
+  for update
+  using (
+    exists (
+      select 1
+      from public.quizzes q
+      where q.id = student_results.quiz_id
+        and q.teacher_id = auth.uid()
+    )
+  )
+  with check (
+    exists (
+      select 1
+      from public.quizzes q
+      where q.id = student_results.quiz_id
+        and q.teacher_id = auth.uid()
+    )
+  );
+
+-- Ensure student_responses table allows management by authenticated teachers
+drop policy if exists "Authenticated users can manage student responses" on public.student_responses;
+create policy "Authenticated users can manage student responses"
+  on public.student_responses
+  for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
 
 -- Fix RLS on question_bank so candidates can read questions during quiz sessions
 alter table public.question_bank enable row level security;
