@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const retryUploadBtn = document.getElementById('retry-upload-btn');
 
   // Seeded deterministic random number generator + Fisher-Yates shuffle
-  function shuffleQuestions(list, seed) {
+  function shuffleWithSeed(list, seed) {
     const arr = [...list];
 
     // Create numeric hash from seed string
@@ -90,6 +90,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     return arr;
+  }
+
+  function getQuestionTypeRank(question) {
+    const type = (question.type || 'MCQ').toUpperCase();
+    if (type === 'MCQ') return 0;
+    if (type === 'FIB') return 1;
+    return 2;
+  }
+
+  function orderQuestionsBySection(list, shouldRandomize) {
+    const sections = [[], [], []];
+    list.forEach((question) => {
+      sections[getQuestionTypeRank(question)].push(question);
+    });
+
+    return sections.flatMap((section, sectionIndex) => {
+      if (!shouldRandomize) return section;
+      return shuffleWithSeed(section, `${studentName}:${quiz.id}:section:${sectionIndex}`);
+    });
+  }
+
+  function getQuestionLimit(totalAvailable) {
+    const limit = parseInt(quiz.question_count, 10);
+    if (!Number.isInteger(limit) || limit < 1) return totalAvailable;
+    return Math.min(limit, totalAvailable);
+  }
+
+  function getDisplayOptions(question) {
+    if (question.type !== 'MCQ') return [];
+    const options = ['A', 'B', 'C', 'D'].map((letter) => ({
+      originalLetter: letter,
+      text: question[`option_${letter.toLowerCase()}`],
+    }));
+
+    if (quiz.randomize_options === false) {
+      return options;
+    }
+
+    return shuffleWithSeed(options, `${studentName}:${quiz.id}:${question.id}:options`);
+  }
+
+  function getOptionReviewData(question) {
+    return getDisplayOptions(question).map((option, index) => ({
+      display_letter: String.fromCharCode(65 + index),
+      original_letter: option.originalLetter,
+      text: option.text || '',
+    }));
   }
 
   // Load Quiz Data
@@ -170,12 +217,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      // 3. Shuffle if randomize is true
-      if (quiz.is_random) {
-        items = shuffleQuestions(items, studentName + quiz.id);
-      }
-
-      questions = items;
+      const shouldRandomizeQuestions = quiz.randomize_questions ?? quiz.is_random;
+      items = orderQuestionsBySection(items, shouldRandomizeQuestions);
+      questions = items.slice(0, getQuestionLimit(items.length));
 
       // Hide loading spinner
       loaderArea.classList.add('hidden');
@@ -292,15 +336,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (q.type === 'MCQ') {
       // Render MCQ radio/button options
-      (['A', 'B', 'C', 'D']).forEach((letter) => {
-        const optionKey = `option_${letter.toLowerCase()}`;
-        const optionText = q[optionKey];
-        const isSelected = selectedAns === letter;
+      getDisplayOptions(q).forEach((option, index) => {
+        const displayLetter = String.fromCharCode(65 + index);
+        const optionText = option.text;
+        const isSelected = selectedAns === option.originalLetter;
 
         optionsHtml += `
           <button
             type="button"
-            onclick="window.selectOption('${letter}')"
+            onclick="window.selectOption('${option.originalLetter}')"
             class="w-full flex items-start gap-4 p-4 rounded-xl border text-left transition select-none cursor-pointer ${
               isSelected
                 ? 'border-blue-600 bg-blue-50/30 ring-1 ring-blue-600'
@@ -314,7 +358,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                   : 'border-slate-300 text-slate-500 bg-slate-50'
               }"
             >
-              ${letter}
+              ${displayLetter}
             </span>
             <span class="text-sm ${isSelected ? 'font-semibold text-slate-900' : 'text-slate-700'}">
               ${escapeHtml(optionText)}
@@ -630,6 +674,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           option_b: q.option_b || null,
           option_c: q.option_c || null,
           option_d: q.option_d || null,
+          options: q.type === 'MCQ' ? getOptionReviewData(q) : null,
           correct_option: q.correct_option || '',
           student_answer: studentAns,
           is_correct: isCorrect,
@@ -681,4 +726,3 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Start initialization
   loadQuizData();
 });
-

@@ -33,6 +33,8 @@ create table public.quizzes (
     question_count integer not null,
     duration_minutes integer not null,
     is_random boolean default false not null,
+    randomize_questions boolean default false not null,
+    randomize_options boolean default true not null,
     access_code varchar(10) unique not null,
     offline_mode boolean default false,
     start_otp text,
@@ -44,6 +46,8 @@ create table public.quizzes (
 alter table public.quizzes add column if not exists offline_mode boolean default false;
 alter table public.quizzes add column if not exists start_otp text;
 alter table public.quizzes add column if not exists submit_otp text;
+alter table public.quizzes add column if not exists randomize_questions boolean default false not null;
+alter table public.quizzes add column if not exists randomize_options boolean default true not null;
 
 -- 4. Quiz Questions Junction Table (Links Question Bank to Active Quizzes)
 create table public.quiz_questions (

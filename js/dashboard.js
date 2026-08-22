@@ -118,10 +118,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border bg-amber-50 text-amber-700 border-amber-100">
                 ${quiz.duration_minutes} min
               </span>
-              ${quiz.is_random ? `
+              ${(quiz.randomize_questions ?? quiz.is_random) ? `
                 <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border bg-slate-100 text-slate-700 border-slate-200">
                   <i data-lucide="shuffle" class="w-3 h-3"></i>
-                  Random
+                  Random Questions
+                </span>
+              ` : ''}
+              ${quiz.randomize_options !== false ? `
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold border bg-emerald-50 text-emerald-700 border-emerald-100">
+                  <i data-lucide="shuffle" class="w-3 h-3"></i>
+                  Random Options
                 </span>
               ` : ''}
             </div>
@@ -393,6 +399,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         >
           <i data-lucide="copy" class="w-5 h-5"></i>
         </button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3 mt-4">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Question Order</label>
+          <div class="text-sm font-semibold text-slate-900">${(quiz.randomize_questions ?? quiz.is_random) ? 'Randomized within sections' : 'Section order only'}</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">MCQ Options</label>
+          <div class="text-sm font-semibold text-slate-900">${quiz.randomize_options !== false ? 'Randomized' : 'Original order'}</div>
+        </div>
       </div>
     `;
 
