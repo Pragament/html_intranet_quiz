@@ -74,12 +74,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const total = parseInt(rawTotal, 10);
   const quizTitle = rawTitle || 'Quiz';
   const name = studentName || 'Student';
+  const studentAdm = sessionStorage.getItem('studentAdmissionNo') || localStorage.getItem('studentAdmissionNo') || '';
 
   const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
 
   // Populate DOM summary card
+  const candidateSuffix = studentAdm ? ` (${studentAdm})` : '';
   document.getElementById('congrats-text').textContent =
-    `Congratulations ${name}, your responses have been registered.`;
+    `Congratulations ${name}${candidateSuffix}, your responses have been registered.`;
   document.getElementById('quiz-title-display').textContent = quizTitle;
   document.getElementById('score-display').textContent = score;
   document.getElementById('total-display').textContent = `out of ${total}`;

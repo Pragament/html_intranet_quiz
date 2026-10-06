@@ -211,3 +211,73 @@ create policy "Allow public updates to quiz-attachments bucket"
   on storage.objects for update
   to public
   using (bucket_id = 'quiz-attachments');
+
+-- ============================================================
+-- 7. Students Table (For Student Login via Admission Number & Phone Number)
+-- ============================================================
+create table if not exists public.students (
+    id uuid default uuid_generate_v4() primary key,
+    admission_number text not null unique,
+    phone_number text not null,
+    name text not null,
+    email text,
+    grade_or_class text,
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- Index for speedy lookups
+create index if not exists idx_students_admission_phone on public.students (admission_number, phone_number);
+
+-- Enable RLS on students
+alter table public.students enable row level security;
+
+-- Student verification policy: allow anon and authenticated users to select students to verify login credentials
+drop policy if exists "Allow students to verify credentials" on public.students;
+create policy "Allow students to verify credentials"
+  on public.students for select
+  using (true);
+
+-- Allow authenticated teachers to manage student records
+drop policy if exists "Teachers manage students" on public.students;
+create policy "Teachers manage students"
+  on public.students for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');
+
+-- Migration helper: add admission_number column to student_results table if not exists
+alter table public.student_results
+  add column if not exists admission_number text;
+
+-- Sample demo students for testing (safe insert)
+insert into public.students (admission_number, phone_number, name, grade_or_class)
+values 
+  ('ADM101', '9876543210', 'Rahul Sharma', 'Class 10-A'),
+  ('ADM102', '9876543211', 'Priya Patel', 'Class 10-A'),
+  ('ADM103', '9876543212', 'Amit Kumar', 'Class 10-B'),
+  ('1001', '1234567890', 'Alex Johnson', 'Grade 9')
+on conflict (admission_number) do nothing;
+
+-- ============================================================
+-- 8. Hostel / Class 9 Roster Verification (For hostel_9_class_2026_27)
+-- ============================================================
+-- Enable RLS and grant anon SELECT so students can verify admission & phone number
+alter table public.hostel_9_class_2026_27 enable row level security;
+
+drop policy if exists "Allow students to verify credentials" on public.hostel_9_class_2026_27;
+create policy "Allow students to verify credentials"
+  on public.hostel_9_class_2026_27 for select
+  using (true);
+
+-- (Optional) Create unified students view mapping from hostel_9_class_2026_27
+create or replace view public.students as
+select 
+  "SNO"::text as id,
+  "ADMIN"::text as admission_number,
+  "PH-1"::text as phone_number,
+  "STUDENT NAME" as name,
+  "CLASS" as grade_or_class
+from public.hostel_9_class_2026_27;
+
+grant select on public.students to anon, authenticated;
+
+
