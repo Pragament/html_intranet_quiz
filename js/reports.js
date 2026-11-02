@@ -931,6 +931,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       question_text: item.question_text || '',
       question_bank_id: item.question_bank_id || item.question_id || null,
       student_answer: item.student_answer ?? item.answer ?? '',
+      competition_submissions: Array.isArray(item.competition_submissions) ? item.competition_submissions : [],
       attachments: item.attachments || [],
       question_type: item.question_type || item.type || 'MCQ',
       marks_assigned: item.marks_assigned ?? null,
@@ -2057,9 +2058,10 @@ document.addEventListener('DOMContentLoaded', async () => {
           questionType: questionRow[9],
           questionText: questionRow[10],
           studentAnswer: questionRow[11],
-          correctKey: questionRow[12],
+          correctKey: questionRow[9] === 'WIZBOT' ? 'Teacher review: compare submitted code, code length, coding time, and robot time.' : questionRow[12],
           assignedMarks: questionRow[13],
-          attachments: snapMatch?.attachments || []
+          attachments: snapMatch?.attachments || [],
+          competitionSubmissions: snapMatch?.competition_submissions || []
         };
       })
     };
@@ -2121,8 +2123,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const questionsHtml = details.questions.map((question) => {
       const hasAssignedMarks = question.assignedMarks !== '' && question.assignedMarks != null;
       const aiProposedMark = getAiProposedMark(aiReasoning, question.questionIndex, question.questionType);
-      const isCorrect = isCsvQuestionCorrect(question);
       const qType = String(question.questionType || '').toUpperCase();
+      const isCorrect = qType === 'WIZBOT'
+        ? (question.competitionSubmissions || []).some((attempt) => attempt && attempt.reachedGoal === true)
+        : isCsvQuestionCorrect(question);
+      const competitionDetails = qType === 'WIZBOT' && Array.isArray(question.competitionSubmissions)
+        ? question.competitionSubmissions.map((attempt, attemptIndex) => `
+            <details class="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+              <summary class="cursor-pointer text-xs font-semibold text-emerald-900">Attempt ${attemptIndex + 1} · ${attempt.reachedGoal ? 'goal reached' : 'not reached'}</summary>
+              <div class="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-slate-700">
+                <span>Code lines: <b>${Number(attempt.codeLines) || 0}</b></span>
+                <span>Coding time: <b>${Math.round(Number(attempt.codingTimeMs) / 1000)}s</b></span>
+                <span>Robot time: <b>${Math.round(Number(attempt.robotTimeMs) / 1000)}s</b></span>
+                <span>Pattern: <b>${escapeHtml(attempt.challengeTitle || '')}</b></span>
+              </div>
+              <pre class="mt-2 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-emerald-50">${escapeHtml(attempt.code || '')}</pre>
+            </details>`).join('')
+        : '';
 
       // Determine color and status badge based on correctness and question type
       let studentBoxClass = 'rounded-md bg-rose-50 p-2 border border-rose-200';
@@ -2141,6 +2158,15 @@ document.addEventListener('DOMContentLoaded', async () => {
           studentTextClass = 'text-rose-950';
           studentLabelClass = 'text-rose-800';
           statusBadge = '<span class="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-semibold text-rose-700">Incorrect (0 / 1)</span>';
+        }
+      } else if (qType === 'WIZBOT') {
+        if (isCorrect) {
+          studentBoxClass = 'rounded-md bg-emerald-50 p-2 border border-emerald-200';
+          studentTextClass = 'text-emerald-950';
+          studentLabelClass = 'text-emerald-800';
+          statusBadge = '<span class="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">Goal reached</span>';
+        } else {
+          statusBadge = '<span class="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold text-amber-700">No successful run</span>';
         }
       } else if (aiProposedMark) {
         const markMatch = String(aiProposedMark).match(/^([0-9.]+)/);
@@ -2228,6 +2254,7 @@ document.addEventListener('DOMContentLoaded', async () => {
               <p class="mt-1 text-xs text-sky-950">${escapeHtml(question.correctKey || '')}</p>
             </div>
           </div>
+          ${competitionDetails ? `<div class="mt-3 rounded-lg border border-emerald-200 bg-white p-3"><p class="text-xs font-bold text-emerald-900">Competition submission details</p>${competitionDetails}</div>` : ''}
           ${hasAssignedMarks ? `<p class="text-[11px] text-slate-500">Previous mark: ${escapeHtml(String(question.assignedMarks))}</p>` : ''}
         </div>
       `;

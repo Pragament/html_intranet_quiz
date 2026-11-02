@@ -4,6 +4,35 @@ A lightweight, browser-based quiz platform for classrooms. Built with vanilla HT
 
 ---
 
+## Wizbot coding competition module (local integration)
+
+This checkout includes an early software-only robot coding challenge under `activities/wizbot/`. It embeds in the existing quiz question flow as the `WIZBOT` question type; no hardware or line-following is used.
+
+### Teacher setup
+
+1. Open **Question Bank → Add Question**.
+2. Select **Robot Coding Challenge**.
+3. Enter a topic tag and student-facing instructions.
+4. Choose the pattern and size, save the question, then add it to a quiz as usual.
+
+### Student submission flow
+
+Students join with the existing quiz name and access code. The coding challenge appears inside the quiz. On a successful run, the student submits an attempt in the challenge and then submits the quiz. The ordinary quiz submission uploads the code, completion flag, code-line count, coding time, robot time, challenge, and timestamp in `student_results.response_snapshot`. The quiz's existing online/OTP upload flow handles the upload.
+
+Teachers can open **Reports → View Responses** to see each submitted attempt's metrics and source code. The quiz result score awards one point for reaching the goal; it is a completion mark, not the final competition ranking formula. The three requested measures are retained separately because their weights and tie-break rules have not been specified.
+
+### Current implementation limits
+
+- This working branch is submitted as a pull request and has not been deployed.
+- The module is a teaching interpreter for movement commands, variables, arithmetic, `if/else`, `repeat`, `for`, and `while`; it is not a full JavaScript runtime.
+- Robot duration is estimated from moves and distance, rather than calibrated to physical Wizbot performance.
+- Coding time is measured from challenge load to submission of that successful attempt. Code efficiency is the count of nonblank, noncomment source lines.
+- The local PIN setup page successfully fetched the `INTRANET QUIZ` configuration. A real teacher report submission still needs a teacher login and a disposable test quiz; those were not available during this check.
+
+### Run locally
+
+Install the locked repository dependencies with `npm ci`, run `npm start`, then open `http://localhost:3000/config.html` and enter the Intranet Quiz PIN. After connecting, sign in as a teacher and create a quiz containing a Robot Coding Challenge question. Do not commit the PIN, Supabase keys, or other secrets.
+
 ## ✨ Features
 
 ### 👩‍🏫 Teacher Portal

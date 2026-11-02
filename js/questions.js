@@ -39,11 +39,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const questionTypeSelect = document.getElementById('question-type');
   const mcqFieldsContainer = document.getElementById('mcq-fields-container');
   const textAnswerFieldsContainer = document.getElementById('text-answer-fields-container');
+  const wizbotFieldsContainer = document.getElementById('wizbot-fields-container');
   const correctTextAnswer = document.getElementById('correct-text-answer');
 
   function updateQuestionTypeUI() {
     const qType = questionTypeSelect ? questionTypeSelect.value : 'MCQ';
     const isMCQ = qType === 'MCQ';
+    const isWizbot = qType === 'WIZBOT';
 
     if (mcqFieldsContainer) {
       if (isMCQ) {
@@ -52,9 +54,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         mcqFieldsContainer.classList.add('hidden');
       }
     }
+    if (wizbotFieldsContainer) wizbotFieldsContainer.classList.toggle('hidden', !isWizbot);
 
     if (textAnswerFieldsContainer) {
-      if (isMCQ) {
+      if (isMCQ || isWizbot) {
         textAnswerFieldsContainer.classList.add('hidden');
       } else {
         textAnswerFieldsContainer.classList.remove('hidden');
@@ -69,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (optB) optB.required = isMCQ;
     if (optC) optC.required = isMCQ;
     if (optD) optD.required = isMCQ;
-    if (correctTextAnswer) correctTextAnswer.required = !isMCQ;
+    if (correctTextAnswer) correctTextAnswer.required = !isMCQ && !isWizbot;
   }
 
   if (questionTypeSelect) {
@@ -290,6 +293,15 @@ Rules:
             Correct Answer: Option ${(q.correct_option || '').toUpperCase()}
           </div>
         `;
+      } else if (q.type === 'WIZBOT') {
+        let config = {};
+        try { config = JSON.parse(q.correct_option || '{}'); } catch (e) { config = {}; }
+        const patternLabel = { 'even-odd': 'Even/odd zigzag', staircase: 'Shrinking staircase', squares: 'Growing squares', square: 'Square route' }[config.pattern] || 'Robot coding challenge';
+        correctAnswerHtml = `
+          <div class="flex items-center gap-1.5 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 px-4 py-2.5 rounded-xl w-fit">
+            🤖 ${escapeHtml(patternLabel)} · size ${Number(config.size) || 4} · code and timing sent with quiz results
+          </div>
+        `;
       } else {
         // Show clean text answer for FIB/Short Answer
         correctAnswerHtml = `
@@ -391,6 +403,14 @@ Rules:
       insertPayload.option_c = optionC;
       insertPayload.option_d = optionD;
       insertPayload.correct_option = correctOption;
+    } else if (qType === 'WIZBOT') {
+      const pattern = document.getElementById('wizbot-pattern').value;
+      const size = Number(document.getElementById('wizbot-size').value);
+      if (!Number.isInteger(size) || size < 1 || size > 8) {
+        window.showToast('Pattern size must be a whole number from 1 to 8.', 'error');
+        return;
+      }
+      insertPayload.correct_option = JSON.stringify({ pattern, size });
     } else {
       const textAns = correctTextAnswer ? correctTextAnswer.value.trim() : '';
       if (!textAns) {
@@ -469,7 +489,9 @@ Rules:
       const rawType = (row.type || '').trim().toUpperCase() || 'MCQ';
 
       let qType = 'MCQ';
-      if (rawType === 'FIB' || rawType === 'FILL IN THE BLANK') {
+      if (rawType === 'WIZBOT' || rawType === 'ROBOT CODING CHALLENGE') {
+        qType = 'WIZBOT';
+      } else if (rawType === 'FIB' || rawType === 'FILL IN THE BLANK') {
         qType = 'FIB';
       } else if (rawType === 'SHORT ANSWER' || rawType === 'SA' || rawType === 'SHORTANSWER') {
         qType = 'Short Answer';
@@ -679,6 +701,7 @@ Rules:
 
   function normalizeQuestionType(type) {
     const rawType = String(type || 'MCQ').trim().toUpperCase();
+    if (rawType === 'WIZBOT' || rawType === 'ROBOT CODING CHALLENGE') return 'WIZBOT';
     if (rawType === 'FIB' || rawType === 'FILL IN THE BLANK' || rawType === 'FILL IN THE BLANKS') {
       return 'FIB';
     }
