@@ -27,7 +27,7 @@ Teachers can open **Reports → View Responses** to see each submitted attempt's
 - The module is a teaching interpreter for movement commands, variables, arithmetic, `if/else`, `repeat`, `for`, and `while`; it is not a full JavaScript runtime.
 - Robot duration is estimated from moves and distance, rather than calibrated to physical Wizbot performance.
 - Coding time is measured from challenge load to submission of that successful attempt. Code efficiency is the count of nonblank, noncomment source lines.
-- The local PIN setup page successfully fetched the `INTRANET QUIZ` configuration. A real teacher report submission still needs a teacher login and a disposable test quiz; those were not available during this check.
+- Verified end to end locally with the configured `INTRANET QUIZ` Supabase project using a clearly labeled test quiz and synthetic student. The teacher report displayed the saved code, code-line count, coding time, robot time, success flag, and attempt count.
 
 ### Run locally
 
@@ -159,3 +159,4 @@ For existing Supabase projects, rerun the migration helpers in `supabase_schema.
 ## 📄 License
 
 This project is open source and available under the [MIT License](LICENSE).
+
