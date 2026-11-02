@@ -28,11 +28,30 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentRound = 1;
   let currentIdx = 0;
   let answers = {};
+  let competitionSubmissions = {};
   let questionAttachments = {}; // q.id -> [{ name, type, size, dataUrl }, ...]
   let timeLeftSeconds = 0;
   let totalDurationSeconds = 0;
   let timerInterval = null;
   let submitting = false;
+
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin || !event.data || event.data.type !== 'wizbot-competition-submit') return;
+    const frame = document.getElementById('wizbot-challenge-frame');
+    const q = questions[currentIdx];
+    if (!frame || event.source !== frame.contentWindow || !q || String(q.id) !== String(event.data.questionId) || String(quiz?.id || '') !== String(event.data.quizId || '') || String(studentName || '') !== String(event.data.studentName || '')) return;
+    const submission = event.data.submission;
+    if (!submission || submission.reachedGoal !== true || typeof submission.code !== 'string') return;
+    const existing = competitionSubmissions[q.id] || [];
+    if (!existing.some((item) => item && item.submittedAt && item.submittedAt === submission.submittedAt)) existing.push(submission);
+    competitionSubmissions[q.id] = existing.slice(-20);
+    answers[q.id] = `Goal reached: Yes; code lines: ${Number(submission.codeLines) || 0}; coding time: ${Math.round(Number(submission.codingTimeMs) || 0)} ms; robot time: ${Math.round(Number(submission.robotTimeMs) || 0)} ms; attempts submitted: ${competitionSubmissions[q.id].length}`;
+    const note = document.getElementById('wizbot-parent-status');
+    if (note) {
+      note.textContent = `Successful attempt saved (${competitionSubmissions[q.id].length}). Your code and timing will be sent with your quiz submission.`;
+      note.className = 'mt-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 text-xs font-medium text-emerald-800';
+    }
+  });
 
   function saveAttachmentsToSession() {
     if (quiz && studentName) {
@@ -488,6 +507,20 @@ document.addEventListener('DOMContentLoaded', async () => {
           />
         `;
       }
+    } else if (qType === 'WIZBOT') {
+      questionTextDisplay.innerHTML = formatQuestionText(q.question_text);
+      let config = {};
+      try { config = JSON.parse(q.correct_option || '{}'); } catch (e) { config = {}; }
+      const query = new URLSearchParams({
+        embed: '1', questionId: String(q.id), quizId: String(quiz.id),
+        student: studentName || 'Candidate', config: JSON.stringify(config)
+      });
+      optionsHtml = `
+        <div class="space-y-2">
+          <iframe id="wizbot-challenge-frame" src="activities/wizbot/index.html?${query.toString()}" title="Wizbot coding challenge" class="w-full border border-slate-200 rounded-xl bg-white" style="height: min(1100px, 115vh); min-height: 780px" loading="eager"></iframe>
+          <div id="wizbot-parent-status" class="mt-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">Write and run your code in the challenge. Submit a successful attempt before finishing the quiz.</div>
+        </div>
+      `;
     } else {
       // Short Answer Question Type
       questionTextDisplay.innerHTML = formatQuestionText(q.question_text);
@@ -759,11 +792,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function isAnswerCorrect(question, studentAnswer) {
+    const qType = (question.type || 'MCQ').trim().toUpperCase();
+    if (qType === 'WIZBOT') {
+      return (competitionSubmissions[question.id] || []).some((item) => item && item.reachedGoal === true);
+    }
     const rawStudent = String(studentAnswer || '').trim();
     const rawCorrect = String(question.correct_option || '').trim();
     if (!rawStudent || !rawCorrect) return false;
 
-    const qType = (question.type || 'MCQ').trim().toUpperCase();
     if (qType === 'MCQ') {
       const studentLetter = rawStudent.charAt(0).toUpperCase();
       const correctLetter = rawCorrect.charAt(0).toUpperCase();
@@ -840,6 +876,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       question_bank_id: q.id,
       question_text: q.question_text,
       student_answer: answers[q.id] || '',
+      competition_submissions: competitionSubmissions[q.id] || [],
       attachments: questionAttachments[q.id] || [],
       question_type: q.type || 'MCQ',
       question_order: index + 1,
@@ -885,6 +922,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Fallback if response_snapshot column is missing on an older database schema
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
+      const hasCodingSubmission = responseSnapshot.some((response) => Array.isArray(response.competition_submissions) && response.competition_submissions.length > 0);
+      if (hasCodingSubmission) {
+        throw new Error('This database is missing the response_snapshot field required to save robot code. Please ask the quiz administrator to apply the included schema migration before submitting.');
+      }
       console.warn('response_snapshot column missing, inserting standard student_results record...');
       const fallbackRes = await window.supabaseClient
         .from('student_results')
@@ -1014,6 +1055,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           options: q.type === 'MCQ' ? getOptionReviewData(q) : null,
           correct_option: q.correct_option || '',
           student_answer: studentAns,
+          competition_submissions: competitionSubmissions[q.id] || [],
           is_correct: isCorrect,
           syllabus_tag: q.syllabus_tag || ''
         };

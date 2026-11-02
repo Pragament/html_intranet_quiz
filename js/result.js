@@ -238,7 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 </div>
                 <div class="font-medium text-slate-900 formatted-content">${formatQuestionText(item.student_answer || '(No answer provided)')}</div>
               </div>
-              ${!isCorrect ? `
+              ${!isCorrect && String(item.type || '').toUpperCase() !== 'WIZBOT' ? `
                 <div class="p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/50 text-sm">
                   <div class="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
                     <i data-lucide="check" class="w-3.5 h-3.5"></i> Correct Answer:
@@ -246,6 +246,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                   <div class="font-medium text-emerald-900 formatted-content">${formatQuestionText(item.correct_option)}</div>
                 </div>
               ` : ''}
+            </div>
+          `;
+        }
+
+        if (String(item.type || '').toUpperCase() === 'WIZBOT' && Array.isArray(item.competition_submissions)) {
+          contentHtml += `
+            <div class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+              <h4 class="text-sm font-bold text-emerald-900">Your coding challenge attempts</h4>
+              ${item.competition_submissions.map((attempt, index) => `
+                <details class="mt-2 rounded-lg border border-emerald-200 bg-white p-3">
+                  <summary class="cursor-pointer text-xs font-semibold text-emerald-900">Attempt ${index + 1} · ${attempt.reachedGoal ? 'Goal reached' : 'Goal not reached'}</summary>
+                  <p class="mt-2 text-xs text-slate-600">${escapeHtml(attempt.challengeTitle || '')} · ${Number(attempt.codeLines) || 0} code lines · Coding ${Math.round(Number(attempt.codingTimeMs) / 1000)}s · Robot ${Math.round(Number(attempt.robotTimeMs) / 1000)}s</p>
+                  <pre class="mt-2 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-emerald-50">${escapeHtml(attempt.code || '')}</pre>
+                </details>`).join('')}
             </div>
           `;
         }

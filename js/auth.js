@@ -102,7 +102,8 @@ window.fetchSupabaseConfig = async function(pin) {
   for (const host of uniqueHosts) {
     const endpoint = `${host.replace(/\/$/, '')}/api/config/get`;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    // The hosted nameserver may need time to wake from an idle state.
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
     try {
       const response = await fetch(endpoint, {
@@ -560,3 +561,4 @@ window.renderHeader = function(user) {
     });
   }
 };
+
