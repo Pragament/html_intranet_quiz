@@ -22,6 +22,14 @@ app.use((req, res, next) => {
 // Serve static frontend files for local testing (with clean URL support)
 app.use(express.static(__dirname, { extensions: ['html', 'htm'] }));
 
+// Fallback clean URL routes
+['quiz', 'dashboard', 'login', 'create', 'questions', 'reports', 'subjects', 'result', 'config'].forEach(page => {
+  app.get(`/${page}`, (req, res) => {
+    const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+    res.redirect(`/${page}.html${query}`);
+  });
+});
+
 // Dedicated Admin Supabase Client Helper (uses service role key only for matching project URL)
 function getAdminSupabaseClient(req) {
   const reqUrl = (req && req.headers && req.headers['x-supabase-url']) ? String(req.headers['x-supabase-url']).trim().replace(/\/$/, '') : '';

@@ -466,15 +466,310 @@ window.ensureTeacherProfile = async function(user) {
   if (error) throw error;
 };
 
+// ==========================================
+// Student Authentication & Session Management
+// ==========================================
+
+window.getStudentSession = function() {
+  try {
+    const raw = sessionStorage.getItem('studentSession') || localStorage.getItem('studentSession');
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.admission_number || parsed.admission_no)) {
+      return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading studentSession:', e);
+  }
+  return null;
+};
+
+window.setStudentSession = function(student) {
+  if (!student) return null;
+  const name = (student.name || student.student_name || student.full_name || 'Student').trim();
+  const adm = String(student.admission_number || student.admission_no || '').trim();
+  const phone = String(student.phone_number || student.phone || student.mobile || '').trim();
+
+  const sessionObj = {
+    id: student.id || null,
+    name: name,
+    student_name: name,
+    admission_number: adm,
+    admission_no: adm,
+    phone_number: phone,
+    grade_or_class: student.grade_or_class || student.class || ''
+  };
+
+  const str = JSON.stringify(sessionObj);
+  try {
+    sessionStorage.setItem('studentSession', str);
+    localStorage.setItem('studentSession', str);
+    sessionStorage.setItem('studentName', name);
+    localStorage.setItem('studentName', name);
+    sessionStorage.setItem('studentAdmissionNo', adm);
+    localStorage.setItem('studentAdmissionNo', adm);
+  } catch (e) {
+    console.warn('Could not persist student session:', e);
+  }
+  return sessionObj;
+};
+
+window.clearStudentSession = function() {
+  try {
+    sessionStorage.removeItem('studentSession');
+    localStorage.removeItem('studentSession');
+    sessionStorage.removeItem('studentName');
+    localStorage.removeItem('studentName');
+    sessionStorage.removeItem('studentAdmissionNo');
+    localStorage.removeItem('studentAdmissionNo');
+  } catch (e) {}
+};
+
+window.normalizePhoneNumber = function(phone) {
+  if (!phone) return '';
+  return String(phone).replace(/\D/g, ''); // Extract numeric digits only
+};
+
+// Verify student credentials against Supabase (supports hostel_9_class_2026_27 and public.students tables)
+window.verifyStudentCredentials = async function(admissionNumber, phoneNumber) {
+  const cleanAdm = String(admissionNumber || '').trim();
+  const cleanPhone = String(phoneNumber || '').trim();
+
+  if (!cleanAdm) {
+    return { success: false, error: 'Admission Number is required.' };
+  }
+  if (!cleanPhone) {
+    return { success: false, error: 'Phone Number is required.' };
+  }
+
+  if (typeof window.ensureSupabaseClient === 'function') {
+    await window.ensureSupabaseClient();
+  }
+
+  if (!window.supabaseClient) {
+    return {
+      success: false,
+      error: 'Supabase client is not connected. Please verify your Supabase URL and Anon Key in config.js.'
+    };
+  }
+
+  const normCleanPhone = window.normalizePhoneNumber(cleanPhone);
+  // Candidate tables in Supabase: user's specific table hostel_9_class_2026_27 and standard students
+  const candidateTables = ['hostel_9_class_2026_27', 'students'];
+  let foundTableWithRLSIssue = false;
+  let targetTableWithRLS = '';
+  let foundTable = false;
+
+  for (const tableName of candidateTables) {
+    try {
+      const { data, error } = await window.supabaseClient
+        .from(tableName)
+        .select('*');
+
+      if (error) {
+        // If table doesn't exist in Supabase schema cache, continue to next candidate table
+        if (
+          error.code === '42P01' ||
+          error.code === 'PGRST205' ||
+          (error.message && (error.message.includes('does not exist') || error.message.includes('schema cache')))
+        ) {
+          continue;
+        }
+        console.warn(`Error querying table '${tableName}':`, error);
+        continue;
+      }
+
+      foundTable = true;
+      const rows = data || [];
+
+      // If the table exists in Supabase but returns 0 rows, check if RLS is enabled without an anon policy
+      if (rows.length === 0) {
+        foundTableWithRLSIssue = true;
+        targetTableWithRLS = tableName;
+        continue;
+      }
+
+      // Search rows in this table
+      const matched = rows.find(row => {
+        // Extract admission number from various column names (ADMIN, admission_number, admission_no, roll_no, etc.)
+        const rowAdm = String(
+          row.ADMIN ?? row.admin ?? row.admission_number ?? row.admission_no ?? row.roll_no ?? ''
+        ).trim();
+
+        if (rowAdm.toLowerCase() !== cleanAdm.toLowerCase()) {
+          return false;
+        }
+
+        // Admission matched! Now verify phone number
+        const rowPhone = String(
+          row['PH-1'] ?? row['ph-1'] ?? row['PH_1'] ?? row.phone_number ?? row.phone ?? row.mobile ?? ''
+        ).trim();
+        const normRowPhone = window.normalizePhoneNumber(rowPhone);
+
+        // 1. Exact string match
+        if (rowPhone === cleanPhone) return true;
+
+        // 2. Normalized numeric digits match
+        if (normRowPhone && normCleanPhone) {
+          if (normRowPhone === normCleanPhone) return true;
+          // Match 10-digit suffix (ignores country code prefixes like +91 or 0)
+          if (normRowPhone.length >= 10 && normCleanPhone.length >= 10) {
+            return normRowPhone.slice(-10) === normCleanPhone.slice(-10);
+          }
+        }
+        return false;
+      });
+
+      if (matched) {
+        const studentName = String(
+          matched['STUDENT NAME'] ?? matched['student_name'] ?? matched.name ?? matched.full_name ?? `Student ${cleanAdm}`
+        ).trim();
+        const studentAdm = String(
+          matched.ADMIN ?? matched.admin ?? matched.admission_number ?? matched.admission_no ?? cleanAdm
+        ).trim();
+        const studentPhone = String(
+          matched['PH-1'] ?? matched['ph-1'] ?? matched.phone_number ?? matched.phone ?? cleanPhone
+        ).trim();
+        const studentClass = String(
+          matched.CLASS ?? matched.class ?? matched.grade_or_class ?? ''
+        ).trim();
+
+        return {
+          success: true,
+          student: {
+            id: matched.SNO ?? matched.id ?? studentAdm,
+            name: studentName,
+            student_name: studentName,
+            admission_number: studentAdm,
+            phone_number: studentPhone,
+            grade_or_class: studentClass
+          }
+        };
+      }
+
+      // Check if admission number was found but phone number was incorrect
+      const admOnlyMatch = rows.find(row => {
+        const rowAdm = String(
+          row.ADMIN ?? row.admin ?? row.admission_number ?? row.admission_no ?? row.roll_no ?? ''
+        ).trim();
+        return rowAdm.toLowerCase() === cleanAdm.toLowerCase();
+      });
+
+      if (admOnlyMatch) {
+        return {
+          success: false,
+          error: `Phone number does not match our records for Admission Number "${cleanAdm}". Please enter your registered phone number.`
+        };
+      }
+    } catch (err) {
+      console.warn(`Exception inspecting table ${tableName}:`, err);
+    }
+  }
+
+  // If table exists but RLS is blocking anon select
+  if (foundTableWithRLSIssue) {
+    return {
+      success: false,
+      isRlsIssue: true,
+      error: `Table '${targetTableWithRLS}' exists in Supabase, but Row Level Security (RLS) is blocking read access for student logins. Please click 'Add RLS policy' on '${targetTableWithRLS}' in your Supabase dashboard or run:\nALTER TABLE public.${targetTableWithRLS} ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "Allow students select" ON public.${targetTableWithRLS} FOR SELECT USING (true);`
+    };
+  }
+
+  if (foundTable) {
+    return {
+      success: false,
+      error: `No student record found with Admission Number "${cleanAdm}". Please check your details.`
+    };
+  }
+
+  return {
+    success: false,
+    isSchemaMissing: true,
+    error: "Neither 'hostel_9_class_2026_27' nor 'students' table could be accessed. Please check your Supabase project permissions or run the schema in 'supabase_schema.sql'."
+  };
+};
+
 // Expose standard Header render logic
 window.renderHeader = function(user) {
   window.currentUser = user;
+  const student = (typeof window.getStudentSession === 'function') ? window.getStudentSession() : null;
   const headerContainer = document.getElementById('header-container');
   if (!headerContainer) return;
 
   const userEmail = user ? user.email : '';
-  const isCustomConfig = !!localStorage.getItem('SUPABASE_CONFIG_UUID');
   const configName = localStorage.getItem('SUPABASE_CONFIG_NAME') || 'DB Config';
+
+  let authSectionHtml = '';
+  if (user) {
+    // Teacher is authenticated
+    authSectionHtml = `
+      <div class="flex items-center gap-3">
+        <span class="text-sm font-medium text-slate-600 hidden md:inline-block truncate max-w-[180px]">
+          ${escapeHtml(userEmail)}
+        </span>
+        <a
+          href="dashboard.html"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
+        >
+          <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
+          Dashboard
+        </a>
+        <button
+          id="logout-btn"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200 cursor-pointer"
+        >
+          <i data-lucide="log-out" class="w-4 h-4 text-slate-500"></i>
+          Logout
+        </button>
+      </div>
+    `;
+  } else if (student) {
+    // Student is authenticated
+    authSectionHtml = `
+      <div class="flex items-center gap-2 sm:gap-3">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-50 text-blue-800 border border-blue-100 text-xs font-semibold max-w-[200px] truncate" title="Admission: ${escapeHtml(student.admission_number)}">
+          <i data-lucide="graduation-cap" class="w-4 h-4 text-blue-600 shrink-0"></i>
+          <span class="truncate">${escapeHtml(student.name)}</span>
+          <span class="text-blue-500 font-mono text-[11px]">(${escapeHtml(student.admission_number)})</span>
+        </span>
+        <a
+          href="index.html"
+          class="inline-flex items-center gap-1 px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
+        >
+          <i data-lucide="play" class="w-3.5 h-3.5 text-blue-600"></i>
+          Lobby
+        </a>
+        <button
+          id="student-logout-btn"
+          class="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200 cursor-pointer"
+          title="Sign out of student account"
+        >
+          <i data-lucide="log-out" class="w-3.5 h-3.5 text-slate-500"></i>
+          <span class="hidden sm:inline">Logout</span>
+        </button>
+      </div>
+    `;
+  } else {
+    // Neither teacher nor student is signed in
+    authSectionHtml = `
+      <div class="flex items-center gap-2">
+        <a
+          href="login.html?role=student"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-blue-200 rounded-xl text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 transition-all duration-200"
+        >
+          <i data-lucide="graduation-cap" class="w-4 h-4 text-blue-600"></i>
+          Student Login
+        </a>
+        <a
+          href="login.html?role=teacher"
+          class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
+        >
+          <i data-lucide="school" class="w-4 h-4 text-slate-500"></i>
+          Teacher Login
+        </a>
+      </div>
+    `;
+  }
 
   headerContainer.innerHTML = `
     <header class="bg-white border-b border-slate-200 sticky top-0 z-40">
@@ -502,35 +797,7 @@ window.renderHeader = function(user) {
               <span class="hidden sm:inline">${escapeHtml(configName)}</span>
             </button>
 
-            ${user ? `
-              <div class="flex items-center gap-3">
-                <span class="text-sm font-medium text-slate-600 hidden md:inline-block truncate max-w-[180px]">
-                  ${escapeHtml(userEmail)}
-                </span>
-                <a
-                  href="dashboard.html"
-                  class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
-                >
-                  <i data-lucide="layout-dashboard" class="w-4 h-4 text-slate-500"></i>
-                  Dashboard
-                </a>
-                <button
-                  id="logout-btn"
-                  class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200 cursor-pointer"
-                >
-                  <i data-lucide="log-out" class="w-4 h-4 text-slate-500"></i>
-                  Logout
-                </button>
-              </div>
-            ` : `
-              <a
-                href="login.html"
-                class="inline-flex items-center gap-1.5 px-3.5 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-all duration-200"
-              >
-                <i data-lucide="log-in" class="w-4 h-4 text-slate-500"></i>
-                Teacher Login
-              </a>
-            `}
+            ${authSectionHtml}
           </div>
         </div>
       </div>
@@ -551,12 +818,26 @@ window.renderHeader = function(user) {
     });
   }
 
-  // Bind logout action
+  // Bind teacher logout action
   const logoutBtn = document.getElementById('logout-btn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      await window.supabaseClient.auth.signOut();
-      window.location.href = 'login.html';
+      if (window.supabaseClient && window.supabaseClient.auth) {
+        await window.supabaseClient.auth.signOut();
+      }
+      window.location.href = 'login.html?role=teacher';
+    });
+  }
+
+  // Bind student logout action
+  const studentLogoutBtn = document.getElementById('student-logout-btn');
+  if (studentLogoutBtn) {
+    studentLogoutBtn.addEventListener('click', () => {
+      window.clearStudentSession();
+      window.showToast('You have signed out.', 'info');
+      setTimeout(() => {
+        window.location.href = 'login.html?role=student';
+      }, 500);
     });
   }
 };
