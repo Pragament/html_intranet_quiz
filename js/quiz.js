@@ -152,11 +152,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('studentName', studentName);
   }
 
+  const studentAdmission = sessionStorage.getItem('studentAdmissionNo') || localStorage.getItem('studentAdmissionNo') || '';
+
   if (!studentName) {
     studentName = 'Candidate';
   }
 
-  document.getElementById('student-name-label').textContent = `Candidate: ${studentName}`;
+  const candidateDisplay = studentAdmission ? `${studentName} (${studentAdmission})` : studentName;
+  document.getElementById('student-name-label').textContent = `Candidate: ${candidateDisplay}`;
 
   const TRUSTED_EDITOR_ORIGINS = [
     'https://levelup.technikh.com',
@@ -2398,19 +2401,40 @@ document.addEventListener('DOMContentLoaded', async () => {
       throw new Error('Supabase database client is not initialized. Check your connection configuration.');
     }
 
+    let payload = { ...basePayload, response_snapshot: responseSnapshot };
+
     // Insert student_results with snapshot and return the created record with its generated UUID
     let { data, error } = await window.supabaseClient
       .from('student_results')
-      .insert({ ...basePayload, response_snapshot: responseSnapshot })
+      .insert(payload)
       .select('id, quiz_id, student_name, score, total_questions, completed_at, response_snapshot')
       .single();
+
+    // Fallback if admission_number column is missing in older database schemas
+    if (error && (error.code === '42703' || (error.message && error.message.includes('admission_number')))) {
+      console.warn('admission_number column not found on student_results; retrying without it...');
+      const cleanPayload = { ...basePayload };
+      delete cleanPayload.admission_number;
+      payload = { ...cleanPayload, response_snapshot: responseSnapshot };
+
+      const retryRes = await window.supabaseClient
+        .from('student_results')
+        .insert(payload)
+        .select('id, quiz_id, student_name, score, total_questions, completed_at, response_snapshot')
+        .single();
+      data = retryRes.data;
+      error = retryRes.error;
+    }
 
     // Fallback if response_snapshot column is missing on an older database schema
     if (error && isMissingSchemaItem(error, 'response_snapshot')) {
       console.warn('response_snapshot column missing, inserting standard student_results record...');
+      const fallbackPayload = { ...basePayload };
+      delete fallbackPayload.response_snapshot;
+      delete fallbackPayload.admission_number;
       const fallbackRes = await window.supabaseClient
         .from('student_results')
-        .insert(basePayload)
+        .insert(fallbackPayload)
         .select('id, quiz_id, student_name, score, total_questions, completed_at')
         .single();
       data = fallbackRes.data;
@@ -2519,6 +2543,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       } else {
         saveLocalResponseSnapshot(resultId, responseSnapshot);
       }
+      // 1. Insert the student_results row and obtain the verified database ID
+      const resultPayload = {
+        quiz_id: quiz.id,
+        student_name: studentName,
+        score: finalScore,
+        total_questions: questions.length,
+      };
+      if (studentAdmission) {
+        resultPayload.admission_number = studentAdmission;
+      }
+
+      const resultRow = await insertStudentResult(resultPayload, responseSnapshot);
+
+      const resultId = resultRow.id;
+      console.log('✅ Student result created with verified ID:', resultId);
+
+      // Save local response snapshot keyed by verified result ID
+      saveLocalResponseSnapshot(resultId, responseSnapshot);
+
+      // 2. Insert row-per-answer responses linked to this resultId
+      await insertStudentResponses(resultId, responseSnapshot);
 
       // Build detailed question review snapshot for student review
       const quizReviewData = questions.map((q, idx) => {
