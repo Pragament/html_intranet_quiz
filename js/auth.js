@@ -472,6 +472,21 @@ window.ensureTeacherProfile = async function(user) {
 
 window.getStudentSession = function() {
   try {
+    if (window.SchoolAuth && typeof window.SchoolAuth.getStudent === 'function') {
+      const saStudent = window.SchoolAuth.getStudent();
+      if (saStudent && saStudent.id) {
+        return {
+          id: saStudent.id,
+          name: saStudent.full_name || saStudent.name,
+          student_name: saStudent.full_name || saStudent.name,
+          admission_number: saStudent.admission_number,
+          admission_no: saStudent.admission_number,
+          phone_number: saStudent.phone_number || '',
+          grade_or_class: (saStudent.class || '') + (saStudent.section ? '-' + saStudent.section : ''),
+          email: saStudent.email || ''
+        };
+      }
+    }
     const raw = sessionStorage.getItem('studentSession') || localStorage.getItem('studentSession');
     if (!raw) return null;
     const parsed = JSON.parse(raw);
@@ -508,6 +523,10 @@ window.setStudentSession = function(student) {
     localStorage.setItem('studentName', name);
     sessionStorage.setItem('studentAdmissionNo', adm);
     localStorage.setItem('studentAdmissionNo', adm);
+    if (student.id) {
+      sessionStorage.setItem('studentId', student.id);
+      localStorage.setItem('studentId', student.id);
+    }
   } catch (e) {
     console.warn('Could not persist student session:', e);
   }
