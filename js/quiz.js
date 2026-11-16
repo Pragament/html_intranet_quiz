@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const studentAdmission = sessionStorage.getItem('studentAdmissionNo') || localStorage.getItem('studentAdmissionNo') || '';
+  const studentId = sessionStorage.getItem('studentId') || (window.SchoolAuth && SchoolAuth.getStudent() ? SchoolAuth.getStudent().id : null);
 
   if (!studentName) {
     studentName = 'Candidate';
@@ -941,6 +942,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const responsesPayload = responseSnapshot.map((resp) => ({
       quiz_id: quiz.id,
       student_result_id: studentResultId,
+      student_id: studentId || null,
       student_name: studentName,
       question_text: resp.question_text || '',
       question_bank_id: resp.question_bank_id || null,
@@ -1008,6 +1010,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 1. Insert the student_results row and obtain the verified database ID
       const resultPayload = {
         quiz_id: quiz.id,
+        student_id: studentId || null,
         student_name: studentName,
         score: finalScore,
         total_questions: questions.length,
