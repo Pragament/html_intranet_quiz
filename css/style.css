@@ -192,3 +192,93 @@ body {
 .formatted-frac > span:last-child {
   padding: 0.08em 0.2em 0;
 }
+
+/* Fullscreen Interactive Editor Workspace */
+.fullscreen-workspace-active {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 9999 !important;
+  background-color: #0b1120 !important;
+  padding: 1rem 1.25rem !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+}
+
+.fullscreen-workspace-active .editor-split-container {
+  height: calc(100vh - 170px) !important;
+  flex: 1 1 auto !important;
+}
+
+.fullscreen-workspace-active .fullscreen-iframe-container {
+  height: calc(100vh - 170px) !important;
+  flex: 1 1 auto !important;
+}
+
+.fullscreen-workspace-active .fullscreen-footer {
+  display: flex !important;
+}
+
+.fullscreen-workspace-active .hide-in-fullscreen {
+  display: none !important;
+}
+
+
+/* LevelUp Question Markdown Table Formatter */
+.question-markdown-table-wrap {
+  margin: 1rem 0;
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.question-markdown-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.question-markdown-table-wrap th {
+  background-color: #f1f5f9;
+  color: #0f172a;
+  font-weight: 700 !important;
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid #cbd5e1;
+  border-right: 1px solid #e2e8f0;
+}
+
+.question-markdown-table-wrap th:last-child {
+  border-right: none;
+}
+
+.question-markdown-table-wrap td {
+  padding: 0.5rem 1rem;
+  color: #334155;
+  font-weight: 400 !important;
+  border-bottom: 1px solid #f1f5f9;
+  border-right: 1px solid #f1f5f9;
+}
+
+.question-markdown-table-wrap td:last-child {
+  border-right: none;
+}
+
+.question-markdown-table-wrap tr:hover td {
+  background-color: #f8fafc;
+}
+
+#question-text-display .question-markdown-table-wrap,
+#question-text-display .question-markdown-table-wrap * {
+  font-weight: normal;
+}
+
+#question-text-display .question-markdown-table-wrap th {
+  font-weight: 700 !important;
+}
