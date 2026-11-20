@@ -1068,10 +1068,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectedAns = answers[q.id];
     let optionsHtml = '';
     const qType = resolveQuestionType(q);
+    const normalizedQType = String(qType).trim().toUpperCase().replace(/_/g, ' ');
+    const blockCodingMarker = String(q.question_text || '').match(/\[\[WIZBOT_BLOCK_CODING(?::(\d+))?\]\]/i);
+    const isBlockCodingShortAnswer = Boolean(blockCodingMarker && ['SHORT ANSWER', 'SHORT', 'SHORTANSWER', 'SA'].includes(normalizedQType));
+    const visibleQuestionText = isBlockCodingShortAnswer
+      ? String(q.question_text || '').replace(blockCodingMarker[0], '').trim()
+      : q.question_text;
 
     // Dynamically expand quiz card container for HTML and EXCEL practical workspaces
     if (quizCardContainer) {
-      if (qType === 'HTML' || qType === 'EXCEL') {
+      if (qType === 'HTML' || qType === 'EXCEL' || isBlockCodingShortAnswer) {
         quizCardContainer.classList.remove('max-w-2xl');
         quizCardContainer.classList.add('max-w-6xl');
       } else {
@@ -1079,7 +1085,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         quizCardContainer.classList.add('max-w-2xl');
       }
     }
-
     if (qType === 'MCQ') {
       // Question Text
       questionTextDisplay.innerHTML = formatQuestionText(q.question_text);
@@ -1443,25 +1448,56 @@ document.addEventListener('DOMContentLoaded', async () => {
       `;
     } else {
       // Short Answer Question Type
-      questionTextDisplay.innerHTML = formatQuestionText(q.question_text);
+      questionTextDisplay.innerHTML = formatQuestionText(visibleQuestionText);
+      let blockCodingFrame = '';
+      if (isBlockCodingShortAnswer) {
+        const challengeNumber = Math.max(1, Math.min(50, Number(blockCodingMarker[1]) || 1));
+        const frameQuery = new URLSearchParams({
+          embed: '1', challenge: String(challengeNumber), prompt: visibleQuestionText
+        });
+        const frameUrl = `https://edulabs.technikh.com/activities/preprimary/robotics/wizbot-maxx/wizbot-academy/competition.html?${frameQuery.toString()}`;
+        blockCodingFrame = `
+          <div class="space-y-2">
+            <iframe id="wizbot-block-frame" src="${escapeHtml(frameUrl)}" title="Wizbot block coding activity" class="w-full border border-slate-200 rounded-xl bg-white" style="height: min(950px, 110vh); min-height: 680px" loading="eager"></iframe>
+            <p id="wizbot-block-status" class="text-xs text-blue-800" role="status">Build your robot program in the blocks. Generated JavaScript will appear in your short answer below.</p>
+          </div>
+        `;
+      }
       optionsHtml = `
         <div class="space-y-3">
+          ${blockCodingFrame}
           <div class="flex items-center gap-2">
-            <input
-              type="text"
-              id="student-text-answer"
-              name="ans_${q.id}_${Date.now()}"
-              autocomplete="off"
-              autocorrect="off"
-              autocapitalize="off"
-              spellcheck="false"
-              aria-autocomplete="none"
-              data-lpignore="true"
-              data-form-type="other"
-              class="flex-1 p-4 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-sm"
-              placeholder="Type your answer here..."
-              value="${escapeHtml(selectedAns || '')}"
-            />
+            ${isBlockCodingShortAnswer ? `
+              <textarea
+                id="student-text-answer"
+                name="ans_${q.id}_${Date.now()}"
+                rows="6"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                data-lpignore="true"
+                data-form-type="other"
+                class="flex-1 min-w-0 p-4 rounded-xl border border-slate-200 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-sm"
+                placeholder="Generated JavaScript appears here..."
+              >${escapeHtml(selectedAns || '')}</textarea>
+            ` : `
+              <input
+                type="text"
+                id="student-text-answer"
+                name="ans_${q.id}_${Date.now()}"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                aria-autocomplete="none"
+                data-lpignore="true"
+                data-form-type="other"
+                class="flex-1 p-4 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent shadow-sm"
+                placeholder="Type your answer here..."
+                value="${escapeHtml(selectedAns || '')}"
+              />
+            `}
             <button
               type="button"
               id="student-open-excel-btn-${q.id}"
@@ -1546,6 +1582,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     optionsContainer.innerHTML = optionsHtml;
 
+    // Keep the Wizbot answer focused on the coding activity; the general
+    // short-answer Excel tools remain available to ordinary questions.
+    if (isBlockCodingShortAnswer) {
+      document.getElementById(`student-open-excel-btn-${q.id}`)?.remove();
+      document.getElementById(`inline-excel-panel-${q.id}`)?.remove();
+    }
+
     // Add input event listener for text answer to save as user types
     if (qType === 'FIB' && getFibBlankCount(q.question_text) > 0) {
       const inlineInputs = questionTextDisplay.querySelectorAll('.inline-fib-input');
@@ -1564,6 +1607,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (textInput) {
         textInput.addEventListener('input', () => {
           answers[q.id] = textInput.value.trim();
+        });
+      }
+
+      const blockFrame = document.getElementById('wizbot-block-frame');
+      if (isBlockCodingShortAnswer && blockFrame) {
+        window.addEventListener('message', (event) => {
+          if (event.source !== blockFrame.contentWindow) return;
+          const message = event.data;
+          if (!message || message.type !== 'wizbot-code-submit') return;
+          if (typeof message.code !== 'string' || message.code.length > 12000) return;
+          const answerField = document.getElementById('student-text-answer');
+          if (!answerField) return;
+          answerField.value = message.code;
+          answers[q.id] = message.code.trim();
+          const status = document.getElementById('wizbot-block-status');
+          if (status) status.textContent = 'Successful generated code added to your short answer. Submit the quiz when you are ready.';
         });
       }
 
@@ -2363,7 +2422,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return questions.map((q, index) => ({
       quiz_id: quiz.id,
       question_bank_id: q.id,
-      question_text: q.question_text,
+      question_text: String(q.question_text || '').replace(/\[\[WIZBOT_BLOCK_CODING(?::\d+)?\]\]/i, '').trim(),
       student_answer: answers[q.id] || '',
       attachments: questionAttachments[q.id] || [],
       question_type: q.type || 'MCQ',

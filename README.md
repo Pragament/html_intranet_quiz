@@ -107,6 +107,7 @@ Teachers can select a larger pool of questions and set **Questions to Ask** to u
 
 During the student attempt:
 - Questions are grouped as **MCQ**, then **FIB**, then **Short Answer**.
+- To add the Wizbot block activity to a Short Answer question, include `[[WIZBOT_BLOCK_CODING:1]]` in its Supabase question text. The number selects the matching route in the Wizbot Academy activity (1–50); students see the rest of the question normally, and generated JavaScript is saved as their short answer.
 - When **Randomize Questions** is enabled, questions are shuffled only inside their own section.
 - When **Randomize MCQ Options** is enabled, choices are shuffled per student by default.
 - Scoring remains stable because shuffled options keep their original answer keys internally.
